@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Organization, Branch, Room, Reservation, Guest, CashShift } from '@/lib/types'
+import SettingsView from './SettingsView'
 
 // ─── Icon Helper ─────────────────────────────────────────────────────────────
 function Icon({ d, size = 16 }: { d: string; size?: number }) {
@@ -59,6 +60,7 @@ export default function DashboardPage() {
   // Data state
   const [orgs, setOrgs] = useState<Organization[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
+  const [roomTypes, setRoomTypes] = useState<any[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
@@ -142,6 +144,11 @@ export default function DashboardPage() {
   }, [supabase])
 
   // ─── Load Rooms by Branch ───────────────────────────────────────────────────
+  const loadRoomTypes = useCallback(async (branchId: string) => {
+    const { data } = await supabase.from('room_types').select('*').eq('branch_id', branchId)
+    if (data) setRoomTypes(data)
+  }, [supabase])
+
   const loadRooms = useCallback(async (branchId: string) => {
     const { data, error } = await supabase
       .from('rooms')
@@ -188,10 +195,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (activeBranchId) {
+      loadRoomTypes(activeBranchId)
       loadRooms(activeBranchId)
       loadReservations(activeBranchId)
     }
-  }, [activeBranchId, loadRooms, loadReservations])
+  }, [activeBranchId, loadRoomTypes, loadRooms, loadReservations])
 
   // ─── Realtime Subscriptions ──────────────────────────────────────────────────
   useEffect(() => {
@@ -200,7 +208,7 @@ export default function DashboardPage() {
       .channel('aura-pms-realtime')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'rooms', filter: `branch_id=eq.${activeBranchId}` },
-        () => loadRooms(activeBranchId)
+        () => { loadRoomTypes(activeBranchId); loadRooms(activeBranchId); }
       )
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'reservations', filter: `branch_id=eq.${activeBranchId}` },
@@ -213,7 +221,7 @@ export default function DashboardPage() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [supabase, activeBranchId, loadRooms, loadReservations, loadOrgs])
+  }, [supabase, activeBranchId, loadRoomTypes, loadRooms, loadReservations, loadOrgs])
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
   async function markRoomClean(roomId: string) {
@@ -339,6 +347,7 @@ export default function DashboardPage() {
     cashshift: 'Arqueo Ciego de Caja',
     crm: 'CRM & Puntos de Lealtad',
     users: 'Usuarios & Roles (RBAC)',
+    settings: 'Configuración de Propiedad',
   }
 
   // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -499,6 +508,7 @@ export default function DashboardPage() {
             { id: 'cashshift', label: 'Arqueo de Caja', icon: 'M1 4h22v16H1zM1 10h22' },
             { id: 'crm', label: 'CRM & Lealtad', icon: 'M12 8a7 7 0 1 0 0-1M8.21 13.89 7 23l5-3 5 3-1.21-9.11' },
             { id: 'users', label: 'Usuarios & Roles', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm14 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
+            { id: 'settings', label: 'Configuración', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z' },
           ].map(item => (
             <button
               key={item.id}
@@ -836,6 +846,8 @@ export default function DashboardPage() {
           )}
 
           {/* ══ USERS ══ */}
+          {activeView === 'settings' && <SettingsView activeBranchId={activeBranchId} roomTypes={roomTypes} onRefresh={() => { loadRoomTypes(activeBranchId); loadRooms(activeBranchId); }} />}
+
           {activeView === 'users' && (
             <div className="animate-fadeUp" style={{ ...card }}>
               <h2 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '4px' }}>Usuarios & Roles (RBAC)</h2>
@@ -874,6 +886,7 @@ export default function DashboardPage() {
             { id: 'housekeeping', label: 'Pisos', icon: 'm12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21' },
             { id: 'cashshift', label: 'Caja', icon: 'M1 4h22v16H1zM1 10h22' },
             { id: 'crm', label: 'CRM', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' },
+            { id: 'settings', label: 'Config', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z' },
           ].map(item => (
             <button key={item.id} onClick={() => setActiveView(item.id)} style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',

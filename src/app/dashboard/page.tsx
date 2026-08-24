@@ -64,6 +64,7 @@ export default function DashboardPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
+  const [users, setUsers] = useState<any[]>([])
 
   const [activeOrgId, setActiveOrgId] = useState<string>('')
   const [activeBranchId, setActiveBranchId] = useState<string>('')
@@ -170,6 +171,11 @@ export default function DashboardPage() {
   }, [supabase])
 
   // ─── Load Guests ─────────────────────────────────────────────────────────────
+  const loadUsers = useCallback(async (orgId: string) => {
+    const { data } = await supabase.from('user_profiles').select('*').eq('organization_id', orgId)
+    if (data) setUsers(data)
+  }, [supabase])
+
   const loadGuests = useCallback(async (orgId: string) => {
     const { data, error } = await supabase
       .from('guests')
@@ -191,7 +197,7 @@ export default function DashboardPage() {
       loadBranches(activeOrgId)
       loadGuests(activeOrgId)
     }
-  }, [activeOrgId, loadBranches, loadGuests])
+  }, [activeOrgId, loadBranches, loadGuests, loadUsers])
 
   useEffect(() => {
     if (activeBranchId) {
@@ -660,26 +666,19 @@ export default function DashboardPage() {
                           ))}
                         </tr>
                       </thead>
-                      <tbody>
-                        {rooms.map(room => (
-                          <tr key={room.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                            <td style={{ padding: '12px 14px', fontWeight: '800', fontSize: '13px' }}>Hab. {room.room_number}</td>
-                            <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{room.room_type}</td>
-                            <td style={{ padding: '12px 14px', color: 'var(--text-500)', fontSize: '12px' }}>{room.floor ?? '—'}</td>
-                            <td style={{ padding: '12px 14px' }}>
-                              <span className={`pill ${roomStatusPill(room.status)}`}>{roomStatusLabel(room.status)}</span>
-                            </td>
-                            <td style={{ padding: '12px 14px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>S/. {room.base_rate?.toFixed(2) ?? '—'}</td>
-                            <td style={{ padding: '12px 14px' }}>
-                              {(room.status === 'DIRTY_PENDING_CLEANING' || room.status === 'CLEANING_IN_PROGRESS') && (
-                                <button onClick={() => markRoomClean(room.id)} style={{ ...btnPrimary, padding: '5px 11px', fontSize: '11px', boxShadow: 'none' }} className="tactile">
-                                  Marcar Limpia
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <td style={{ padding: '12px 14px', fontWeight: '800' }}>{u.full_name} <br/><span style={{fontSize:'10px', color:'var(--text-500)', fontWeight:400}}>{u.email}</span></td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">{u.system_role}</span></td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{orgs.find(o => o.id === u.organization_id)?.name}</td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">{u.is_active ? 'Activo' : 'Inactivo'}</span></td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr><td colSpan={4} style={{ padding: '12px 14px', color: 'var(--text-500)' }}>No hay usuarios</td></tr>
+                  )}
+                </tbody>
                     </table>
                   </div>
                 </div>
@@ -700,26 +699,19 @@ export default function DashboardPage() {
                           ))}
                         </tr>
                       </thead>
-                      <tbody>
-                        {reservations.map(r => (
-                          <tr key={r.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                            <td style={{ padding: '12px 14px', fontWeight: '700', fontSize: '13px' }}>
-                              {r.guests ? `${r.guests.first_name} ${r.guests.last_name}` : '—'}
-                            </td>
-                            <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>
-                              {r.rooms ? `Hab. ${r.rooms.room_number}` : '—'}
-                            </td>
-                            <td style={{ padding: '12px 14px', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{r.check_in_date}</td>
-                            <td style={{ padding: '12px 14px', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{r.check_out_date}</td>
-                            <td style={{ padding: '12px 14px', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>S/. {r.total_amount?.toFixed(2)}</td>
-                            <td style={{ padding: '12px 14px' }}>
-                              <span className={`pill ${r.status === 'CHECKED_IN' ? 'pill-emerald' : 'pill-orange'}`}>
-                                {r.status === 'CHECKED_IN' ? 'En Hotel' : 'Confirmada'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <td style={{ padding: '12px 14px', fontWeight: '800' }}>{u.full_name} <br/><span style={{fontSize:'10px', color:'var(--text-500)', fontWeight:400}}>{u.email}</span></td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">{u.system_role}</span></td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{orgs.find(o => o.id === u.organization_id)?.name}</td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">{u.is_active ? 'Activo' : 'Inactivo'}</span></td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr><td colSpan={4} style={{ padding: '12px 14px', color: 'var(--text-500)' }}>No hay usuarios</td></tr>
+                  )}
+                </tbody>
                     </table>
                   </div>
                 </div>
@@ -743,26 +735,19 @@ export default function DashboardPage() {
                       ))}
                     </tr>
                   </thead>
-                  <tbody>
-                    {rooms.length === 0 && (
-                      <tr><td colSpan={3} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-500)' }}>Sin habitaciones en esta sucursal</td></tr>
-                    )}
-                    {rooms.map(room => (
-                      <tr key={room.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <td style={{ padding: '14px', fontWeight: '800' }}>Hab. {room.room_number} · <span style={{ fontWeight: '500', color: 'var(--text-300)', fontSize: '12px' }}>{room.room_type}</span></td>
-                        <td style={{ padding: '14px' }}><span className={`pill ${roomStatusPill(room.status)}`}>{roomStatusLabel(room.status)}</span></td>
-                        <td style={{ padding: '14px' }}>
-                          {(room.status === 'DIRTY_PENDING_CLEANING' || room.status === 'CLEANING_IN_PROGRESS') ? (
-                            <button onClick={() => markRoomClean(room.id)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: '12px', boxShadow: 'none' }} className="tactile">
-                              <Icon d="M20 6L9 17l-5-5" size={13} /> Marcar Limpia
-                            </button>
-                          ) : (
-                            <span style={{ fontSize: '12px', color: 'var(--text-700)' }}>—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <td style={{ padding: '12px 14px', fontWeight: '800' }}>{u.full_name} <br/><span style={{fontSize:'10px', color:'var(--text-500)', fontWeight:400}}>{u.email}</span></td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">{u.system_role}</span></td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{orgs.find(o => o.id === u.organization_id)?.name}</td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">{u.is_active ? 'Activo' : 'Inactivo'}</span></td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr><td colSpan={4} style={{ padding: '12px 14px', color: 'var(--text-500)' }}>No hay usuarios</td></tr>
+                  )}
+                </tbody>
                 </table>
               </div>
             </div>
@@ -822,31 +807,26 @@ export default function DashboardPage() {
                       ))}
                     </tr>
                   </thead>
-                  <tbody>
-                    {guests.length === 0 && (
-                      <tr><td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-500)' }}>Sin huéspedes registrados aún</td></tr>
-                    )}
-                    {guests.map(g => (
-                      <tr key={g.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <td style={{ padding: '12px 14px', fontWeight: '700' }}>{g.first_name} {g.last_name}</td>
-                        <td style={{ padding: '12px 14px', color: 'var(--text-500)', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{g.document_type} {g.document_number}</td>
-                        <td style={{ padding: '12px 14px' }}>
-                          <span className={`pill ${g.loyalty_tier === 'GOLD' ? 'pill-orange' : g.loyalty_tier === 'SILVER' ? 'pill-blue' : 'pill-emerald'}`}>
-                            {g.loyalty_tier ?? 'BRONZE'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 14px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>{g.loyalty_points ?? 0} pts</td>
-                        <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-300)' }}>{g.email ?? g.phone ?? '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <td style={{ padding: '12px 14px', fontWeight: '800' }}>{u.full_name} <br/><span style={{fontSize:'10px', color:'var(--text-500)', fontWeight:400}}>{u.email}</span></td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">{u.system_role}</span></td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{orgs.find(o => o.id === u.organization_id)?.name}</td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">{u.is_active ? 'Activo' : 'Inactivo'}</span></td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr><td colSpan={4} style={{ padding: '12px 14px', color: 'var(--text-500)' }}>No hay usuarios</td></tr>
+                  )}
+                </tbody>
                 </table>
               </div>
             </div>
           )}
 
           {/* ══ USERS ══ */}
-          {activeView === 'settings' && <SettingsView activeBranchId={activeBranchId} roomTypes={roomTypes} onRefresh={() => { loadRoomTypes(activeBranchId); loadRooms(activeBranchId); }} />}
+          {activeView === 'settings' && <SettingsView activeOrgId={activeOrgId} activeBranchId={activeBranchId} roomTypes={roomTypes} onRefreshOrg={() => loadBranches(activeOrgId)} onRefresh={() => { loadRoomTypes(activeBranchId); loadRooms(activeBranchId); }} />}
 
           {activeView === 'users' && (
             <div className="animate-fadeUp" style={{ ...card }}>
@@ -861,12 +841,17 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td style={{ padding: '12px 14px', fontWeight: '800' }}>m4r10kk</td>
-                    <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">SUPER_ADMIN</span></td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>Todas las Empresas</td>
-                    <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">Activo</span></td>
-                  </tr>
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <td style={{ padding: '12px 14px', fontWeight: '800' }}>{u.full_name} <br/><span style={{fontSize:'10px', color:'var(--text-500)', fontWeight:400}}>{u.email}</span></td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">{u.system_role}</span></td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{orgs.find(o => o.id === u.organization_id)?.name}</td>
+                      <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">{u.is_active ? 'Activo' : 'Inactivo'}</span></td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr><td colSpan={4} style={{ padding: '12px 14px', color: 'var(--text-500)' }}>No hay usuarios</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

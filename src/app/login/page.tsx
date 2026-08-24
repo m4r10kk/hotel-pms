@@ -23,7 +23,7 @@ export default function LoginPage() {
     })
 
     if (authError) {
-      setError(authError.message === 'Invalid login credentials' ? 'Usuario o contraseña incorrectos.' : authError.message)
+      setError(`Error: ${authError.message}`)
       setLoading(false)
     } else {
       router.push('/dashboard')

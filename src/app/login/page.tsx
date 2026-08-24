@@ -2,13 +2,11 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-
-// Credential check — in production upgrade to Supabase Auth
-const VALID_USER = 'm4r10kk'
-const VALID_PASS = 'as12DF2004'
+import { createClient } from '@/lib/supabase'
 
 export default function LoginPage() {
   const router = useRouter()
+  const supabase = createClient()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -19,15 +17,16 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
 
-    // Small delay for perceived security
-    await new Promise(r => setTimeout(r, 400))
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: username,
+      password: password,
+    })
 
-    if (username === VALID_USER && password === VALID_PASS) {
-      sessionStorage.setItem('aura_session', username)
-      router.push('/dashboard')
-    } else {
-      setError('Usuario o contraseña incorrectos.')
+    if (authError) {
+      setError(authError.message === 'Invalid login credentials' ? 'Usuario o contraseña incorrectos.' : authError.message)
       setLoading(false)
+    } else {
+      router.push('/dashboard')
     }
   }
 

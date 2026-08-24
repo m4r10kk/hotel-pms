@@ -47,9 +47,10 @@ export default function DashboardPage() {
 
   // Auth guard
   useEffect(() => {
-    const session = sessionStorage.getItem('aura_session')
-    if (!session) router.push('/login')
-  }, [router])
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) router.push('/login')
+    })
+  }, [router, supabase])
 
   // Supabase connection state
   const [sbOnline, setSbOnline] = useState(false)
@@ -249,6 +250,12 @@ export default function DashboardPage() {
       code: branchCode,
       city: newOrgCity,
     })
+    
+    // 3. Link the user to this organization
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      await supabase.from('user_profiles').update({ organization_id: orgData.id }).eq('id', user.id)
+    }
 
     // Reset form & reload
     setNewOrgName('')
@@ -313,8 +320,8 @@ export default function DashboardPage() {
     }
   }
 
-  function logout() {
-    sessionStorage.removeItem('aura_session')
+  async function logout() {
+    await supabase.auth.signOut()
     router.push('/login')
   }
 

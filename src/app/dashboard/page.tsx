@@ -1,0 +1,987 @@
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase'
+import type { Organization, Branch, Room, Reservation, Guest, CashShift } from '@/lib/types'
+
+// ─── Icon Helper ─────────────────────────────────────────────────────────────
+function Icon({ d, size = 16 }: { d: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  )
+}
+
+// ─── Room Status Helpers ──────────────────────────────────────────────────────
+function roomStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    AVAILABLE: 'Disponible',
+    OCCUPIED: 'Ocupada',
+    CLEANING_IN_PROGRESS: 'Limpiando',
+    DIRTY_PENDING_CLEANING: 'Sucia',
+    INSPECTION_PENDING: 'Inspección',
+    MAINTENANCE_BLOCKED: 'Mantenimiento',
+  }
+  return map[status] ?? status
+}
+
+function roomStatusPill(status: string) {
+  const map: Record<string, string> = {
+    AVAILABLE: 'pill-emerald',
+    OCCUPIED: 'pill-orange',
+    CLEANING_IN_PROGRESS: 'pill-blue',
+    DIRTY_PENDING_CLEANING: 'pill-red',
+    INSPECTION_PENDING: 'pill-amber',
+    MAINTENANCE_BLOCKED: 'pill-red',
+  }
+  return map[status] ?? 'pill-blue'
+}
+
+// ─── Main Dashboard ────────────────────────────────────────────────────────────
+export default function DashboardPage() {
+  const router = useRouter()
+  const supabase = createClient()
+
+  // Auth guard
+  useEffect(() => {
+    const session = sessionStorage.getItem('aura_session')
+    if (!session) router.push('/login')
+  }, [router])
+
+  // Supabase connection state
+  const [sbOnline, setSbOnline] = useState(false)
+  const [sbLatency, setSbLatency] = useState<number | null>(null)
+
+  // Data state
+  const [orgs, setOrgs] = useState<Organization[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [reservations, setReservations] = useState<Reservation[]>([])
+  const [guests, setGuests] = useState<Guest[]>([])
+
+  const [activeOrgId, setActiveOrgId] = useState<string>('')
+  const [activeBranchId, setActiveBranchId] = useState<string>('')
+  const [activeView, setActiveView] = useState('tapechart')
+
+  // Sidebar & modals
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showNewOrgModal, setShowNewOrgModal] = useState(false)
+  const [showModulesModal, setShowModulesModal] = useState(false)
+  const [showReservationModal, setShowReservationModal] = useState(false)
+  const [showCashModal, setShowCashModal] = useState(false)
+
+  // New org form
+  const [newOrgName, setNewOrgName] = useState('')
+  const [newOrgRuc, setNewOrgRuc] = useState('')
+  const [newOrgCity, setNewOrgCity] = useState('')
+  const [newBranchName, setNewBranchName] = useState('')
+  const [newOrgSaving, setNewOrgSaving] = useState(false)
+  const [newOrgError, setNewOrgError] = useState('')
+
+  // Cash shift form
+  const [cashAmount, setCashAmount] = useState('')
+  const [posAmount, setPosAmount] = useState('')
+  const [yapeAmount, setYapeAmount] = useState('')
+  const [cashSaved, setCashSaved] = useState(false)
+
+  // New reservation form
+  const [resGuestName, setResGuestName] = useState('')
+  const [resRoomId, setResRoomId] = useState('')
+  const [resCheckIn, setResCheckIn] = useState('')
+  const [resCheckOut, setResCheckOut] = useState('')
+  const [resSaving, setResSaving] = useState(false)
+  const [resError, setResError] = useState('')
+
+  // ─── Supabase Health Check ──────────────────────────────────────────────────
+  const checkHealth = useCallback(async () => {
+    try {
+      const t0 = performance.now()
+      const { error } = await supabase.from('organizations').select('id').limit(1)
+      const lat = Math.round(performance.now() - t0)
+      if (!error) {
+        setSbOnline(true)
+        setSbLatency(lat)
+      } else {
+        setSbOnline(false)
+      }
+    } catch {
+      setSbOnline(false)
+    }
+  }, [supabase])
+
+  // ─── Load Organizations ─────────────────────────────────────────────────────
+  const loadOrgs = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (!error && data) {
+      setOrgs(data)
+      if (data.length > 0 && !activeOrgId) {
+        setActiveOrgId(data[0].id)
+      }
+    }
+  }, [supabase, activeOrgId])
+
+  // ─── Load Branches by Org ───────────────────────────────────────────────────
+  const loadBranches = useCallback(async (orgId: string) => {
+    const { data, error } = await supabase
+      .from('branches')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: true })
+    if (!error && data) {
+      setBranches(data)
+      if (data.length > 0) setActiveBranchId(data[0].id)
+      else setActiveBranchId('')
+    }
+  }, [supabase])
+
+  // ─── Load Rooms by Branch ───────────────────────────────────────────────────
+  const loadRooms = useCallback(async (branchId: string) => {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('branch_id', branchId)
+      .order('room_number', { ascending: true })
+    if (!error && data) setRooms(data)
+  }, [supabase])
+
+  // ─── Load Reservations by Branch ───────────────────────────────────────────
+  const loadReservations = useCallback(async (branchId: string) => {
+    const { data, error } = await supabase
+      .from('reservations')
+      .select('*, rooms(room_number, room_type), guests(first_name, last_name, loyalty_tier)')
+      .eq('branch_id', branchId)
+      .in('status', ['CONFIRMED', 'CHECKED_IN'])
+      .order('check_in_date', { ascending: true })
+    if (!error && data) setReservations(data as Reservation[])
+  }, [supabase])
+
+  // ─── Load Guests ─────────────────────────────────────────────────────────────
+  const loadGuests = useCallback(async (orgId: string) => {
+    const { data, error } = await supabase
+      .from('guests')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('loyalty_points', { ascending: false })
+      .limit(50)
+    if (!error && data) setGuests(data)
+  }, [supabase])
+
+  // ─── Initial Load ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    checkHealth()
+    loadOrgs()
+  }, [checkHealth, loadOrgs])
+
+  useEffect(() => {
+    if (activeOrgId) {
+      loadBranches(activeOrgId)
+      loadGuests(activeOrgId)
+    }
+  }, [activeOrgId, loadBranches, loadGuests])
+
+  useEffect(() => {
+    if (activeBranchId) {
+      loadRooms(activeBranchId)
+      loadReservations(activeBranchId)
+    }
+  }, [activeBranchId, loadRooms, loadReservations])
+
+  // ─── Realtime Subscriptions ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!activeBranchId) return
+    const channel = supabase
+      .channel('aura-pms-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'rooms', filter: `branch_id=eq.${activeBranchId}` },
+        () => loadRooms(activeBranchId)
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'reservations', filter: `branch_id=eq.${activeBranchId}` },
+        () => loadReservations(activeBranchId)
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'organizations' },
+        () => loadOrgs()
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, activeBranchId, loadRooms, loadReservations, loadOrgs])
+
+  // ─── Actions ─────────────────────────────────────────────────────────────────
+  async function markRoomClean(roomId: string) {
+    await supabase
+      .from('rooms')
+      .update({ status: 'AVAILABLE', is_clean: true })
+      .eq('id', roomId)
+    // Realtime will re-fetch automatically
+  }
+
+  async function saveNewOrg(e: React.FormEvent) {
+    e.preventDefault()
+    setNewOrgSaving(true)
+    setNewOrgError('')
+
+    // 1. Insert organization
+    const { data: orgData, error: orgError } = await supabase
+      .from('organizations')
+      .insert({ name: newOrgName, tax_id: newOrgRuc })
+      .select()
+      .single()
+
+    if (orgError || !orgData) {
+      setNewOrgError('Error al guardar la empresa. Verifica tu conexión con Supabase.')
+      setNewOrgSaving(false)
+      return
+    }
+
+    // 2. Insert first branch
+    const branchCode = newOrgCity.toUpperCase().replace(/\s+/g, '_').slice(0, 20)
+    await supabase.from('branches').insert({
+      organization_id: orgData.id,
+      name: newBranchName,
+      code: branchCode,
+      city: newOrgCity,
+    })
+
+    // Reset form & reload
+    setNewOrgName('')
+    setNewOrgRuc('')
+    setNewOrgCity('')
+    setNewBranchName('')
+    setNewOrgSaving(false)
+    setShowNewOrgModal(false)
+    await loadOrgs()
+    setActiveOrgId(orgData.id)
+  }
+
+  async function saveCashShift(e: React.FormEvent) {
+    e.preventDefault()
+    const cash = parseFloat(cashAmount) || 0
+    const pos = parseFloat(posAmount) || 0
+    const yape = parseFloat(yapeAmount) || 0
+    const total = cash + pos + yape
+
+    await supabase.from('cash_shifts').insert({
+      branch_id: activeBranchId || null,
+      shift_code: `TURNO-${Date.now().toString().slice(-6)}`,
+      status: 'CLOSED',
+      declared_cash: cash,
+      system_cash: total,
+      difference_amount: 0,
+    })
+    setCashSaved(true)
+    setTimeout(() => { setCashSaved(false); setShowCashModal(false) }, 2000)
+  }
+
+  async function saveNewReservation(e: React.FormEvent) {
+    e.preventDefault()
+    setResSaving(true)
+    setResError('')
+
+    if (!resRoomId || !resCheckIn || !resCheckOut) {
+      setResError('Completa todos los campos.')
+      setResSaving(false)
+      return
+    }
+
+    const { error } = await supabase.from('reservations').insert({
+      branch_id: activeBranchId,
+      room_id: resRoomId,
+      check_in_date: resCheckIn,
+      check_out_date: resCheckOut,
+      status: 'CONFIRMED',
+      total_amount: 0,
+    })
+
+    if (error) {
+      setResError('Error al guardar. Verifica que la habitación esté disponible.')
+      setResSaving(false)
+    } else {
+      setResRoomId('')
+      setResCheckIn('')
+      setResCheckOut('')
+      setResGuestName('')
+      setResSaving(false)
+      setShowReservationModal(false)
+    }
+  }
+
+  function logout() {
+    sessionStorage.removeItem('aura_session')
+    router.push('/login')
+  }
+
+  // ─── Derived Metrics ──────────────────────────────────────────────────────────
+  const occupiedRooms = rooms.filter(r => r.status === 'OCCUPIED').length
+  const dirtyRooms = rooms.filter(r => r.status === 'DIRTY_PENDING_CLEANING').length
+  const occupancyPct = rooms.length > 0 ? Math.round((occupiedRooms / rooms.length) * 100) : 0
+
+  const activeBranch = branches.find(b => b.id === activeBranchId)
+  const activeOrg = orgs.find(o => o.id === activeOrgId)
+
+  const viewLabels: Record<string, string> = {
+    tapechart: 'Front Desk — Tape Chart',
+    housekeeping: 'Housekeeping Móvil',
+    cashshift: 'Arqueo Ciego de Caja',
+    crm: 'CRM & Puntos de Lealtad',
+    users: 'Usuarios & Roles (RBAC)',
+  }
+
+  // ─── Styles ───────────────────────────────────────────────────────────────────
+  const card: React.CSSProperties = {
+    background: 'rgba(13,21,39,0.75)',
+    backdropFilter: 'blur(16px)',
+    border: '1px solid var(--border-card)',
+    borderRadius: '16px',
+    padding: '18px',
+  }
+
+  const btnPrimary: React.CSSProperties = {
+    background: 'linear-gradient(135deg, var(--orange) 0%, #ea580c 100%)',
+    color: '#fff',
+    border: 'none',
+    padding: '9px 16px',
+    borderRadius: '10px',
+    fontSize: '12.5px',
+    fontWeight: '700',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    boxShadow: '0 4px 16px var(--orange-glow)',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  }
+
+  const btnGhost: React.CSSProperties = {
+    background: 'var(--orange-dim)',
+    border: '1px solid rgba(255,107,0,0.3)',
+    color: '#fdba74',
+    padding: '9px 14px',
+    borderRadius: '10px',
+    fontSize: '12px',
+    fontWeight: '700',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ display: 'flex', width: '100vw', minHeight: '100dvh', overflow: 'hidden', position: 'relative' }}>
+
+      {/* ── Mobile Backdrop ── */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(5,10,20,0.8)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 35,
+          }}
+        />
+      )}
+
+      {/* ════════════════════ SIDEBAR ════════════════════ */}
+      <aside style={{
+        width: '280px',
+        background: 'var(--bg-800)',
+        borderRight: '1px solid var(--border-subtle)',
+        display: 'flex',
+        flexDirection: 'column',
+        flexShrink: 0,
+        position: 'relative' as const,
+        zIndex: 40,
+        ...(typeof window !== 'undefined' && window.innerWidth < 768 ? {
+          position: 'fixed' as const,
+          top: 0, bottom: 0, left: 0,
+          transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 260ms var(--ease-spring)',
+          boxShadow: '20px 0 50px rgba(0,0,0,0.8)',
+        } : {}),
+      }}>
+
+        {/* Brand Header */}
+        <div style={{ padding: '18px 18px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: '32px', height: '32px',
+                background: 'linear-gradient(135deg, var(--orange) 0%, #c2410c 100%)',
+                borderRadius: '10px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'white', boxShadow: '0 4px 14px var(--orange-glow)',
+              }}>
+                <Icon d="M3 21h18M5 21V7l8-4v18M13 21V3l6 4v14" size={15} />
+              </div>
+              <span style={{ fontSize: '15px', fontWeight: '900', letterSpacing: '-0.03em' }}>
+                AURA<span style={{ color: 'var(--orange)' }}>.</span>PMS
+              </span>
+            </div>
+            <span style={{
+              fontSize: '9px', fontWeight: '700', padding: '2px 6px', borderRadius: '5px',
+              background: 'var(--orange-dim)', border: '1px solid rgba(255,107,0,0.3)',
+              color: '#fdba74', fontFamily: "'JetBrains Mono', monospace",
+            }}>ÍMPETU HUB</span>
+          </div>
+
+          {/* Org / Branch Selectors */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)' }}>Empresa</span>
+              <button onClick={() => setShowNewOrgModal(true)} style={{ background: 'none', border: 'none', color: 'var(--orange)', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontFamily: 'inherit' }}>
+                <Icon d="M12 5v14M5 12h14" size={12} /> Nueva
+              </button>
+            </div>
+            <select
+              value={activeOrgId}
+              onChange={e => setActiveOrgId(e.target.value)}
+              style={{ width: '100%', background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: '#fff', padding: '7px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              {orgs.length === 0 && <option value="">— Sin empresas aún —</option>}
+              {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+
+            {branches.length > 0 && (
+              <>
+                <span style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)' }}>Sucursal</span>
+                <select
+                  value={activeBranchId}
+                  onChange={e => setActiveBranchId(e.target.value)}
+                  style={{ width: '100%', background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: '#fff', padding: '7px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </>
+            )}
+
+            {/* Supabase Status */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '7px',
+              padding: '6px 10px', borderRadius: '8px',
+              background: sbOnline ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
+              border: sbOnline ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(245,158,11,0.3)',
+              color: sbOnline ? '#34d399' : '#fde68a',
+              fontSize: '11px', fontWeight: '700',
+            }}>
+              <div style={{
+                width: '7px', height: '7px', borderRadius: '50%',
+                background: sbOnline ? 'var(--emerald)' : 'var(--amber)',
+                boxShadow: sbOnline ? '0 0 8px var(--emerald)' : 'none',
+                animation: 'pulseDot 2.4s infinite',
+              }} />
+              {sbOnline ? `Supabase Online${sbLatency ? ` (${sbLatency}ms)` : ''}` : 'Supabase: Sin conexión'}
+            </div>
+          </div>
+        </div>
+
+        {/* Nav */}
+        <nav style={{ flex: 1, padding: '12px 8px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          {[
+            { id: 'tapechart', label: 'Front Desk — Tape Chart', icon: 'M3 4h13M3 8h9m-9 4h6m4 0l4-4 4 4m-4-4v12' },
+            { id: 'housekeeping', label: 'Housekeeping Móvil', icon: 'm12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z' },
+            { id: 'cashshift', label: 'Arqueo de Caja', icon: 'M1 4h22v16H1zM1 10h22' },
+            { id: 'crm', label: 'CRM & Lealtad', icon: 'M12 8a7 7 0 1 0 0-1M8.21 13.89 7 23l5-3 5 3-1.21-9.11' },
+            { id: 'users', label: 'Usuarios & Roles', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm14 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
+          ].map(item => (
+            <button
+              key={item.id}
+              onClick={() => { setActiveView(item.id); setSidebarOpen(false) }}
+              className="tactile"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                padding: '9px 12px', borderRadius: '10px',
+                background: activeView === item.id ? 'linear-gradient(135deg, rgba(255,107,0,0.2) 0%, rgba(255,107,0,0.08) 100%)' : 'transparent',
+                border: activeView === item.id ? '1px solid rgba(255,107,0,0.35)' : '1px solid transparent',
+                color: activeView === item.id ? '#fff' : 'var(--text-300)',
+                fontSize: '12.5px', fontWeight: '600',
+                width: '100%', textAlign: 'left',
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              <span style={{ color: activeView === item.id ? 'var(--orange)' : 'inherit', flexShrink: 0 }}>
+                <Icon d={item.icon} size={15} />
+              </span>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* User Footer */}
+        <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-subtle)', background: 'rgba(5,10,20,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '8px',
+              background: 'linear-gradient(135deg, var(--orange) 0%, #ea580c 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: '800', fontSize: '13px', color: '#fff',
+            }}>M</div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: '700' }}>m4r10kk</div>
+              <div style={{ fontSize: '10px', color: 'var(--text-500)', fontFamily: "'JetBrains Mono', monospace" }}>SUPER_ADMIN</div>
+            </div>
+          </div>
+          <button onClick={logout} className="tactile" style={{ background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: 'var(--text-300)', padding: '7px 9px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '11px', fontWeight: '600' }}>
+            <Icon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" size={13} />
+            Salir
+          </button>
+        </div>
+      </aside>
+
+      {/* ════════════════════ MAIN CANVAS ════════════════════ */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Topbar */}
+        <header style={{
+          height: '60px',
+          background: 'rgba(13,21,39,0.85)',
+          backdropFilter: 'blur(16px)',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 20px', flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button onClick={() => setSidebarOpen(true)} className="tactile" style={{ display: 'none', background: 'var(--bg-700)', border: '1px solid var(--border-card)', color: '#fff', width: '36px', height: '36px', borderRadius: '9px', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} id="mobile-menu-btn">
+              <Icon d="M3 12h18M3 6h18M3 18h18" />
+            </button>
+            <div>
+              <h1 style={{ fontSize: '15.5px', fontWeight: '800', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ width: '7px', height: '7px', background: 'var(--emerald)', borderRadius: '50%', boxShadow: '0 0 8px var(--emerald)', display: 'inline-block', animation: 'pulseDot 2.4s infinite', flexShrink: 0 }} />
+                {viewLabels[activeView] ?? 'Dashboard'}
+              </h1>
+              <p style={{ fontSize: '11px', color: 'var(--text-500)' }}>
+                {activeBranch ? `${activeBranch.name} · ${rooms.length} habitaciones` : (activeOrg ? activeOrg.name : 'Sin sede activa')}
+              </p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => setShowModulesModal(true)} style={btnGhost} className="tactile">
+              <Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm6.935-3.071A8 8 0 1 1 9.06 3.065" size={13} />
+              <span>Módulos</span>
+            </button>
+            <button onClick={() => setShowReservationModal(true)} style={btnPrimary} className="tactile">
+              <Icon d="M12 5v14M5 12h14" size={13} />
+              <span>Nueva Reserva</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Stage */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px', paddingBottom: '80px' }}>
+
+          {/* ── NO DATA EMPTY STATE ── */}
+          {orgs.length === 0 && (
+            <div className="animate-fadeUp" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', textAlign: 'center' }}>
+              <div style={{ width: '64px', height: '64px', background: 'var(--orange-dim)', border: '1px solid rgba(255,107,0,0.3)', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--orange)' }}>
+                <Icon d="M3 21h18M5 21V7l8-4v18M13 21V3l6 4v14" size={30} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '6px' }}>Bienvenido a AURA PMS</h2>
+                <p style={{ color: 'var(--text-500)', fontSize: '13px', maxWidth: '340px' }}>
+                  {sbOnline
+                    ? 'No hay empresas registradas aún. Crea tu primera empresa para comenzar.'
+                    : 'Conectando con Supabase... Verifica que tu URL y Anon Key estén configuradas en Vercel y en .env.local.'}
+                </p>
+              </div>
+              {sbOnline && (
+                <button onClick={() => setShowNewOrgModal(true)} style={{ ...btnPrimary, padding: '12px 20px', fontSize: '13.5px' }} className="tactile">
+                  <Icon d="M12 5v14M5 12h14" />
+                  Crear Primera Empresa
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ══ TAPE CHART ══ */}
+          {activeView === 'tapechart' && orgs.length > 0 && (
+            <div className="animate-fadeUp">
+              {/* Bento Metrics */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+                {[
+                  { label: 'Ocupación', value: rooms.length > 0 ? `${occupancyPct}%` : '—', sub: `${occupiedRooms} de ${rooms.length} habitaciones`, color: 'var(--orange)', icon: 'M3 21h18M5 21V7l8-4v18M13 21V3l6 4v14' },
+                  { label: 'Reservas Activas', value: reservations.length, sub: 'Confirmadas + En curso', color: '#fff', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
+                  { label: 'Sucias / Pendientes', value: dirtyRooms, sub: 'Requieren limpieza', color: 'var(--amber)', icon: 'm12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21' },
+                  { label: 'Huéspedes CRM', value: guests.length, sub: 'Total en la organización', color: 'var(--emerald)', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' },
+                ].map((m, i) => (
+                  <div key={i} style={{ ...card, position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-500)' }}>{m.label}</span>
+                      <span style={{ color: m.color }}><Icon d={m.icon} size={14} /></span>
+                    </div>
+                    <div style={{ fontSize: '26px', fontWeight: '900', letterSpacing: '-0.04em', color: m.color }}>{String(m.value)}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-500)', marginTop: '3px' }}>{m.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Rooms Table */}
+              {rooms.length === 0 ? (
+                <div style={{ ...card, textAlign: 'center', padding: '40px', color: 'var(--text-500)' }}>
+                  <p style={{ fontSize: '14px', marginBottom: '8px' }}>No hay habitaciones en esta sucursal.</p>
+                  <p style={{ fontSize: '12px' }}>Agrégalas desde el SQL Editor de Supabase en la tabla <code>rooms</code>.</p>
+                </div>
+              ) : (
+                <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                  <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <h2 style={{ fontSize: '14px', fontWeight: '800' }}>Habitaciones — Estado en Tiempo Real</h2>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-700)' }}>
+                          {['Habitación', 'Tipo', 'Piso', 'Estado', 'Tarifa Base', 'Acción'].map(h => (
+                            <th key={h} style={{ padding: '11px 14px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rooms.map(room => (
+                          <tr key={room.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <td style={{ padding: '12px 14px', fontWeight: '800', fontSize: '13px' }}>Hab. {room.room_number}</td>
+                            <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{room.room_type}</td>
+                            <td style={{ padding: '12px 14px', color: 'var(--text-500)', fontSize: '12px' }}>{room.floor ?? '—'}</td>
+                            <td style={{ padding: '12px 14px' }}>
+                              <span className={`pill ${roomStatusPill(room.status)}`}>{roomStatusLabel(room.status)}</span>
+                            </td>
+                            <td style={{ padding: '12px 14px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>S/. {room.base_rate?.toFixed(2) ?? '—'}</td>
+                            <td style={{ padding: '12px 14px' }}>
+                              {(room.status === 'DIRTY_PENDING_CLEANING' || room.status === 'CLEANING_IN_PROGRESS') && (
+                                <button onClick={() => markRoomClean(room.id)} style={{ ...btnPrimary, padding: '5px 11px', fontSize: '11px', boxShadow: 'none' }} className="tactile">
+                                  Marcar Limpia
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Reservations */}
+              {reservations.length > 0 && (
+                <div style={{ ...card, padding: 0, overflow: 'hidden', marginTop: '16px' }}>
+                  <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <h2 style={{ fontSize: '14px', fontWeight: '800' }}>Reservas Activas</h2>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '560px' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-700)' }}>
+                          {['Huésped', 'Habitación', 'Check-in', 'Check-out', 'Total', 'Estado'].map(h => (
+                            <th key={h} style={{ padding: '11px 14px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reservations.map(r => (
+                          <tr key={r.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <td style={{ padding: '12px 14px', fontWeight: '700', fontSize: '13px' }}>
+                              {r.guests ? `${r.guests.first_name} ${r.guests.last_name}` : '—'}
+                            </td>
+                            <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>
+                              {r.rooms ? `Hab. ${r.rooms.room_number}` : '—'}
+                            </td>
+                            <td style={{ padding: '12px 14px', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{r.check_in_date}</td>
+                            <td style={{ padding: '12px 14px', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{r.check_out_date}</td>
+                            <td style={{ padding: '12px 14px', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>S/. {r.total_amount?.toFixed(2)}</td>
+                            <td style={{ padding: '12px 14px' }}>
+                              <span className={`pill ${r.status === 'CHECKED_IN' ? 'pill-emerald' : 'pill-orange'}`}>
+                                {r.status === 'CHECKED_IN' ? 'En Hotel' : 'Confirmada'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ HOUSEKEEPING ══ */}
+          {activeView === 'housekeeping' && (
+            <div className="animate-fadeUp" style={{ ...card, padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <h2 style={{ fontSize: '14px', fontWeight: '800' }}>Housekeeping Móvil — Actualización en Tiempo Real</h2>
+                <p style={{ fontSize: '11.5px', color: 'var(--text-500)', marginTop: '2px' }}>Al marcar limpia, el Tape Chart se actualiza al instante en todas las pantallas vía Supabase.</p>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '500px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-700)' }}>
+                      {['Habitación', 'Estado Actual', 'Acción'].map(h => (
+                        <th key={h} style={{ padding: '11px 14px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rooms.length === 0 && (
+                      <tr><td colSpan={3} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-500)' }}>Sin habitaciones en esta sucursal</td></tr>
+                    )}
+                    {rooms.map(room => (
+                      <tr key={room.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '14px', fontWeight: '800' }}>Hab. {room.room_number} · <span style={{ fontWeight: '500', color: 'var(--text-300)', fontSize: '12px' }}>{room.room_type}</span></td>
+                        <td style={{ padding: '14px' }}><span className={`pill ${roomStatusPill(room.status)}`}>{roomStatusLabel(room.status)}</span></td>
+                        <td style={{ padding: '14px' }}>
+                          {(room.status === 'DIRTY_PENDING_CLEANING' || room.status === 'CLEANING_IN_PROGRESS') ? (
+                            <button onClick={() => markRoomClean(room.id)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: '12px', boxShadow: 'none' }} className="tactile">
+                              <Icon d="M20 6L9 17l-5-5" size={13} /> Marcar Limpia
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: 'var(--text-700)' }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ══ CASH SHIFT ══ */}
+          {activeView === 'cashshift' && (
+            <div className="animate-fadeUp" style={{ maxWidth: '520px' }}>
+              <div style={{ ...card }}>
+                <h2 style={{ fontSize: '16px', fontWeight: '800', marginBottom: '4px' }}>Arqueo Ciego de Caja</h2>
+                <p style={{ fontSize: '12px', color: 'var(--text-500)', marginBottom: '20px' }}>Se guarda en la tabla <code>cash_shifts</code> de Supabase al confirmar.</p>
+                <form onSubmit={saveCashShift}>
+                  {[
+                    { label: 'Efectivo en Caja (S/.)', key: 'cash', val: cashAmount, set: setCashAmount },
+                    { label: 'Vouchers POS (S/.)', key: 'pos', val: posAmount, set: setPosAmount },
+                    { label: 'Yape / Plin / Transferencia (S/.)', key: 'yape', val: yapeAmount, set: setYapeAmount },
+                  ].map(f => (
+                    <div key={f.key} style={{ marginBottom: '14px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>{f.label}</label>
+                      <input type="number" step="0.01" min="0" className="form-input" value={f.val} onChange={e => f.set(e.target.value)} placeholder="0.00" />
+                    </div>
+                  ))}
+                  <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px', marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '800' }}>
+                      <span>Total Declarado:</span>
+                      <span style={{ color: 'var(--orange)', fontFamily: "'JetBrains Mono', monospace" }}>
+                        S/. {((parseFloat(cashAmount) || 0) + (parseFloat(posAmount) || 0) + (parseFloat(yapeAmount) || 0)).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                  <button type="submit" style={{ ...btnPrimary, width: '100%', justifyContent: 'center', padding: '12px' }} className="tactile">
+                    Cuadrar y Guardar en Supabase
+                  </button>
+                </form>
+                {cashSaved && (
+                  <div style={{ marginTop: '14px', padding: '12px 14px', background: 'var(--emerald-dim)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '10px', color: '#34d399', fontSize: '12.5px', fontWeight: '700' }}>
+                    Arqueo guardado correctamente en Supabase.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ══ CRM ══ */}
+          {activeView === 'crm' && (
+            <div className="animate-fadeUp" style={{ ...card, padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <h2 style={{ fontSize: '14px', fontWeight: '800' }}>CRM & Lealtad — Huéspedes</h2>
+                <p style={{ fontSize: '11.5px', color: 'var(--text-500)', marginTop: '2px' }}>Datos de la tabla <code>guests</code> en Supabase.</p>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '580px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-700)' }}>
+                      {['Huésped', 'Documento', 'Nivel', 'Puntos', 'Contacto'].map(h => (
+                        <th key={h} style={{ padding: '11px 14px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {guests.length === 0 && (
+                      <tr><td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-500)' }}>Sin huéspedes registrados aún</td></tr>
+                    )}
+                    {guests.map(g => (
+                      <tr key={g.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '12px 14px', fontWeight: '700' }}>{g.first_name} {g.last_name}</td>
+                        <td style={{ padding: '12px 14px', color: 'var(--text-500)', fontSize: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{g.document_type} {g.document_number}</td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <span className={`pill ${g.loyalty_tier === 'GOLD' ? 'pill-orange' : g.loyalty_tier === 'SILVER' ? 'pill-blue' : 'pill-emerald'}`}>
+                            {g.loyalty_tier ?? 'BRONZE'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 14px', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>{g.loyalty_points ?? 0} pts</td>
+                        <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-300)' }}>{g.email ?? g.phone ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ══ USERS ══ */}
+          {activeView === 'users' && (
+            <div className="animate-fadeUp" style={{ ...card }}>
+              <h2 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '4px' }}>Usuarios & Roles (RBAC)</h2>
+              <p style={{ fontSize: '12px', color: 'var(--text-500)', marginBottom: '16px' }}>Los usuarios se gestionan desde el panel de Supabase → Authentication → Users.</p>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-700)' }}>
+                    {['Usuario', 'Rol', 'Empresa', 'Estado'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: '12px 14px', fontWeight: '800' }}>m4r10kk</td>
+                    <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">SUPER_ADMIN</span></td>
+                    <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>Todas las Empresas</td>
+                    <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">Activo</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+        </div>
+
+        {/* Mobile Bottom Nav */}
+        <nav style={{
+          display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0,
+          height: '64px', background: 'rgba(13,21,39,0.95)', backdropFilter: 'blur(20px)',
+          borderTop: '1px solid var(--border-subtle)', zIndex: 30,
+          justifyContent: 'space-around', alignItems: 'center', padding: '0 8px',
+        }} id="mobile-bottom-nav">
+          {[
+            { id: 'tapechart', label: 'Tape Chart', icon: 'M3 4h13M3 8h9m-9 4h6m4 0l4-4 4 4m-4-4v12' },
+            { id: 'housekeeping', label: 'Pisos', icon: 'm12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21' },
+            { id: 'cashshift', label: 'Caja', icon: 'M1 4h22v16H1zM1 10h22' },
+            { id: 'crm', label: 'CRM', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' },
+          ].map(item => (
+            <button key={item.id} onClick={() => setActiveView(item.id)} style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: activeView === item.id ? 'var(--orange)' : 'var(--text-500)',
+              fontSize: '10px', fontWeight: '700', padding: '6px 10px', fontFamily: 'inherit',
+              filter: activeView === item.id ? 'drop-shadow(0 0 6px rgba(255,107,0,0.6))' : 'none',
+            }}>
+              <Icon d={item.icon} size={20} />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </main>
+
+      {/* ════════ MODAL: NUEVA EMPRESA ════════ */}
+      {showNewOrgModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,10,20,0.85)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: '16px' }}>
+          <div className="animate-scaleIn" style={{ background: 'var(--bg-800)', border: '1px solid var(--border-card)', borderRadius: '20px', width: '100%', maxWidth: '460px', padding: '26px 22px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+              <h2 style={{ fontSize: '17px', fontWeight: '800' }}>Nueva Empresa / Hotel</h2>
+              <button onClick={() => setShowNewOrgModal(false)} style={{ background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: 'var(--text-300)', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+            </div>
+
+            {newOrgError && (
+              <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', marginBottom: '14px' }}>{newOrgError}</div>
+            )}
+
+            <form onSubmit={saveNewOrg}>
+              {[
+                { label: 'Nombre comercial del hotel / cadena', val: newOrgName, set: setNewOrgName, placeholder: 'ej. Hotel Costa Azul' },
+                { label: 'RUC (ID Tributario)', val: newOrgRuc, set: setNewOrgRuc, placeholder: '20601234567' },
+                { label: 'Ciudad principal', val: newOrgCity, set: setNewOrgCity, placeholder: 'Lima, Cusco...' },
+                { label: 'Nombre de la sucursal principal', val: newBranchName, set: setNewBranchName, placeholder: 'Sede Principal' },
+              ].map(f => (
+                <div key={f.label} style={{ marginBottom: '13px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>{f.label}</label>
+                  <input className="form-input" value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.placeholder} required />
+                </div>
+              ))}
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '18px' }}>
+                <button type="button" onClick={() => setShowNewOrgModal(false)} style={{ ...btnGhost, flex: 1, justifyContent: 'center' }}>Cancelar</button>
+                <button type="submit" disabled={newOrgSaving} style={{ ...btnPrimary, flex: 1, justifyContent: 'center' }}>
+                  {newOrgSaving ? 'Guardando...' : 'Crear en Supabase'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ MODAL: NUEVA RESERVA ════════ */}
+      {showReservationModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,10,20,0.85)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: '16px' }}>
+          <div className="animate-scaleIn" style={{ background: 'var(--bg-800)', border: '1px solid var(--border-card)', borderRadius: '20px', width: '100%', maxWidth: '440px', padding: '26px 22px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+              <h2 style={{ fontSize: '17px', fontWeight: '800' }}>Nueva Reserva</h2>
+              <button onClick={() => setShowReservationModal(false)} style={{ background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: 'var(--text-300)', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+            </div>
+
+            {resError && (
+              <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', marginBottom: '14px' }}>{resError}</div>
+            )}
+
+            <form onSubmit={saveNewReservation}>
+              <div style={{ marginBottom: '13px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Habitación</label>
+                <select className="form-input" value={resRoomId} onChange={e => setResRoomId(e.target.value)} required style={{ cursor: 'pointer' }}>
+                  <option value="">— Selecciona habitación —</option>
+                  {rooms.filter(r => r.status === 'AVAILABLE').map(r => (
+                    <option key={r.id} value={r.id}>Hab. {r.room_number} — {r.room_type} (S/. {r.base_rate})</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ marginBottom: '13px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Check-in</label>
+                <input type="date" className="form-input" value={resCheckIn} onChange={e => setResCheckIn(e.target.value)} required />
+              </div>
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Check-out</label>
+                <input type="date" className="form-input" value={resCheckOut} onChange={e => setResCheckOut(e.target.value)} required />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button type="button" onClick={() => setShowReservationModal(false)} style={{ ...btnGhost, flex: 1, justifyContent: 'center' }}>Cancelar</button>
+                <button type="submit" disabled={resSaving} style={{ ...btnPrimary, flex: 1, justifyContent: 'center' }}>
+                  {resSaving ? 'Guardando...' : 'Guardar Reserva'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ MODAL: MÓDULOS ════════ */}
+      {showModulesModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,10,20,0.85)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: '16px' }}>
+          <div className="animate-scaleIn" style={{ background: 'var(--bg-800)', border: '1px solid var(--border-card)', borderRadius: '20px', width: '100%', maxWidth: '420px', padding: '26px 22px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+              <h2 style={{ fontSize: '17px', fontWeight: '800' }}>Módulos del Sistema</h2>
+              <button onClick={() => setShowModulesModal(false)} style={{ background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: 'var(--text-300)', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-500)', marginBottom: '16px' }}>Todos los módulos activos. La gestión de feature flags por empresa se realizará desde la tabla <code>organization_modules</code> en Supabase.</p>
+            {['Front Desk & Tape Chart (Core)', 'Housekeeping Móvil & Averías', 'Arqueo Ciego de Caja', 'CRM & Puntos de Lealtad', 'Tarifas Dinámicas', 'Facturación SUNAT & WhatsApp'].map(m => (
+              <div key={m} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: '13px', fontWeight: '600' }}>
+                <span>{m}</span>
+                <span className="pill pill-emerald">Activo</span>
+              </div>
+            ))}
+            <button onClick={() => setShowModulesModal(false)} style={{ ...btnPrimary, width: '100%', justifyContent: 'center', marginTop: '18px' }}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}

@@ -104,17 +104,15 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '14px' }}>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-500)', marginBottom: '6px' }}>
-              Usuario
-            </label>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-300)', marginBottom: '8px' }}>Correo electrónico</label>
             <input
-              type="text"
+              type="email"
               className="form-input"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              placeholder="Ingresa tu usuario..."
-              autoComplete="username"
+              placeholder="admin@hotel.com"
+              autoComplete="email"
               required
             />
           </div>

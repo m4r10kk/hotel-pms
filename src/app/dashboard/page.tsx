@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Organization, Branch, Room, Reservation, Guest, CashShift } from '@/lib/types'
 import SettingsView from './SettingsView'
+import { createEmployee } from '@/app/actions/users'
 
 // ─── Icon Helper ─────────────────────────────────────────────────────────────
 function Icon({ d, size = 16 }: { d: string; size?: number }) {
@@ -65,6 +66,12 @@ export default function DashboardPage() {
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
   const [users, setUsers] = useState<any[]>([])
+
+  const [empName, setEmpName] = useState('')
+  const [empEmail, setEmpEmail] = useState('')
+  const [empPass, setEmpPass] = useState('')
+  const [empRole, setEmpRole] = useState('FRONT_DESK')
+  const [empLoading, setEmpLoading] = useState(false)
 
   const [activeOrgId, setActiveOrgId] = useState<string>('')
   const [activeBranchId, setActiveBranchId] = useState<string>('')
@@ -394,6 +401,36 @@ export default function DashboardPage() {
     gap: '6px',
     cursor: 'pointer',
     fontFamily: 'inherit',
+  }
+
+  async function handleCreateEmployee(e: React.FormEvent) {
+    e.preventDefault()
+    if (!activeOrgId) return alert('Selecciona una empresa primero')
+    
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user?.id) return alert('No hay sesión de administrador activa')
+
+    setEmpLoading(true)
+    const result = await createEmployee(
+      activeOrgId,
+      session.user.id,
+      empName,
+      empEmail,
+      empPass,
+      empRole
+    )
+    setEmpLoading(false)
+
+    if (result.error) {
+      alert(result.error)
+    } else {
+      alert('Empleado creado exitosamente.')
+      setEmpName('')
+      setEmpEmail('')
+      setEmpPass('')
+      setEmpRole('FRONT_DESK')
+      loadUsers(activeOrgId)
+    }
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────────

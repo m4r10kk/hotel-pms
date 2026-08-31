@@ -1146,10 +1146,10 @@ export default function DashboardPage() {
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Habitación</label>
                 <select className="form-input" value={resRoomId} onChange={e => setResRoomId(e.target.value)} required style={{ cursor: 'pointer' }}>
                   <option value="">— Selecciona habitación —</option>
-                  {rooms.filter(r => r.status === 'AVAILABLE').map(r => {
+                  {rooms.map(r => {
                     const rt = roomTypes.find(t => t.id === (r as any).room_type_id)
                     const rate = resStayType === 'HORAS' && rt?.hourly_rate ? `S/. ${rt.hourly_rate}/hr` : rt ? `S/. ${rt.base_price}/noche` : ''
-                    return <option key={r.id} value={r.id}>Hab. {r.room_number} — {rt?.name ?? r.room_type} {rate ? `(${rate})` : ''}</option>
+                    return <option key={r.id} value={r.id} disabled={r.status !== 'AVAILABLE'}>Hab. {r.room_number} — {rt?.name ?? r.room_type} {rate ? `(${rate})` : ''} {r.status !== 'AVAILABLE' ? '(Ocupada/Sucia)' : ''}</option>
                   })}
                 </select>
               </div>

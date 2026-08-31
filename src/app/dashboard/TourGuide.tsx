@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 export default function TourGuide({ view }: { view: string }) {
   const [run, setRun] = useState(false)
@@ -76,7 +77,7 @@ export default function TourGuide({ view }: { view: string }) {
     )
   }
 
-  return (
+  const tourOverlay = (
     <>
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(5, 10, 20, 0.6)', zIndex: 999 }} onClick={closeTour} />
       
@@ -125,4 +126,6 @@ export default function TourGuide({ view }: { view: string }) {
       </div>
     </>
   )
+
+  return createPortal(tourOverlay, document.body)
 }

@@ -44,7 +44,7 @@ export interface Room {
   room_type: string
   floor: number | null
   capacity: number
-  status: RoomStatus
+  current_status: RoomStatus
   is_clean: boolean
   base_rate: number
   created_at: string
@@ -86,7 +86,7 @@ export interface CashShift {
   id: string
   branch_id: string
   shift_code: string
-  status: string
+  current_status: string
   declared_cash: number
   system_cash: number
   difference_amount: number

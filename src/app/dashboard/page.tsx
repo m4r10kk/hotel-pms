@@ -433,8 +433,8 @@ export default function DashboardPage() {
   }
 
   // ─── Derived Metrics ──────────────────────────────────────────────────────────
-  const occupiedRooms = rooms.filter(r => r.status === 'OCCUPIED').length
-  const dirtyRooms = rooms.filter(r => r.status === 'DIRTY_PENDING_CLEANING').length
+  const occupiedRooms = rooms.filter(r => r.current_status === 'OCCUPIED').length
+  const dirtyRooms = rooms.filter(r => r.current_status === 'DIRTY_PENDING_CLEANING').length
   const occupancyPct = rooms.length > 0 ? Math.round((occupiedRooms / rooms.length) * 100) : 0
 
   const activeBranch = branches.find(b => b.id === activeBranchId)
@@ -788,18 +788,16 @@ export default function DashboardPage() {
                         </tr>
                       </thead>
                 <tbody>
-                  {users.map(u => (
-                    <tr key={u.id}>
-                      <td style={{ padding: '12px 14px', fontWeight: '800' }}>{u.full_name} <br/><span style={{fontSize:'10px', color:'var(--text-500)', fontWeight:400}}>{u.email}</span></td>
-                      <td style={{ padding: '12px 14px' }}><span className="pill pill-orange">{u.system_role}</span></td>
-                      <td style={{ padding: '12px 14px', color: 'var(--text-300)', fontSize: '12.5px' }}>{orgs.find(o => o.id === u.organization_id)?.name}</td>
-                      <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">{u.is_active ? 'Activo' : 'Inactivo'}</span></td>
-                    </tr>
-                  ))}
-                  {users.length === 0 && (
-                    <tr><td colSpan={4} style={{ padding: '12px 14px', color: 'var(--text-500)' }}>No hay usuarios</td></tr>
-                  )}
-                </tbody>
+                        {guests.map(g => (
+                          <tr key={g.id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background='var(--bg-700)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                            <td style={{ padding: '14px 16px', fontWeight: '800', color: 'var(--text-100)' }}>{g.first_name} {g.last_name}</td>
+                            <td style={{ padding: '14px 16px', color: 'var(--text-300)' }}>{g.document_type} {g.document_number}</td>
+                            <td style={{ padding: '14px 16px' }}><span className="pill pill-emerald">{g.loyalty_tier}</span></td>
+                            <td style={{ padding: '14px 16px', color: 'var(--orange)', fontWeight: '700' }}>{g.loyalty_points} pts</td>
+                            <td style={{ padding: '14px 16px', color: 'var(--text-400)', fontSize: '12px' }}>{g.email || g.phone || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
                     </table>
                   </div>
                 </div>
@@ -1148,7 +1146,7 @@ export default function DashboardPage() {
                   {rooms.map(r => {
                     const rt = roomTypes.find(t => t.id === (r as any).room_type_id)
                     const rate = resStayType === 'HORAS' && rt?.hourly_rate ? `S/. ${rt.hourly_rate}/hr` : rt ? `S/. ${rt.base_price}/noche` : ''
-                    return <option key={r.id} value={r.id} disabled={r.status !== 'AVAILABLE'}>Hab. {r.room_number} — {rt?.name ?? r.room_type} {rate ? `(${rate})` : ''} {r.status !== 'AVAILABLE' ? '(Ocupada/Sucia)' : ''}</option>
+                    return <option key={r.id} value={r.id} disabled={r.current_status !== 'AVAILABLE'}>Hab. {r.room_number} — {rt?.name ?? r.room_type} {rate ? `(${rate})` : ''} {r.current_status !== 'AVAILABLE' ? '(Ocupada/Sucia)' : ''}</option>
                   })}
                 </select>
               </div>

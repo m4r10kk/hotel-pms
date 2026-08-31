@@ -47,10 +47,20 @@ export default function DashboardPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // Auth guard
+
+  // Auth guard + load current user profile
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) router.push('/login')
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) {
+        router.push('/login')
+        return
+      }
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('full_name, email, system_role')
+        .eq('id', session.user.id)
+        .single()
+      if (profile) setCurrentProfile(profile)
     })
   }, [router, supabase])
 
@@ -66,6 +76,7 @@ export default function DashboardPage() {
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
   const [users, setUsers] = useState<any[]>([])
+  const [currentProfile, setCurrentProfile] = useState<{ full_name: string; email: string; system_role: string } | null>(null)
 
   const [empName, setEmpName] = useState('')
   const [empEmail, setEmpEmail] = useState('')
@@ -581,10 +592,10 @@ export default function DashboardPage() {
               background: 'linear-gradient(135deg, var(--orange) 0%, #ea580c 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontWeight: '800', fontSize: '13px', color: '#fff',
-            }}>M</div>
+            }}>{currentProfile?.full_name?.charAt(0)?.toUpperCase() ?? '?'}</div>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: '700' }}>m4r10kk</div>
-              <div style={{ fontSize: '10px', color: 'var(--text-500)', fontFamily: "'JetBrains Mono', monospace" }}>SUPER_ADMIN</div>
+              <div style={{ fontSize: '12px', fontWeight: '700' }}>{currentProfile?.full_name ?? '...'}</div>
+              <div style={{ fontSize: '10px', color: 'var(--text-500)', fontFamily: "'JetBrains Mono', monospace" }}>{currentProfile?.system_role ?? '...'}</div>
             </div>
           </div>
           <button onClick={logout} className="tactile" style={{ background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: 'var(--text-300)', padding: '7px 9px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '11px', fontWeight: '600' }}>

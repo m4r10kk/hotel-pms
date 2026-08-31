@@ -81,7 +81,7 @@ export default function DashboardPage() {
   const [empName, setEmpName] = useState('')
   const [empEmail, setEmpEmail] = useState('')
   const [empPass, setEmpPass] = useState('')
-  const [empRole, setEmpRole] = useState('FRONT_DESK')
+  const [empRole, setEmpRole] = useState('RECEPTIONIST')
   const [empLoading, setEmpLoading] = useState(false)
 
   const [activeOrgId, setActiveOrgId] = useState<string>('')
@@ -120,6 +120,11 @@ export default function DashboardPage() {
   const [resCheckInTime, setResCheckInTime] = useState('')
   const [resCheckOutTime, setResCheckOutTime] = useState('')
   const [resTotalPrice, setResTotalPrice] = useState(0)
+  
+  const [resDocType, setResDocType] = useState('DNI')
+  const [resDocNum, setResDocNum] = useState('')
+  const [resFirstName, setResFirstName] = useState('')
+  const [resLastName, setResLastName] = useState('')
 
   // ─── Supabase Health Check ──────────────────────────────────────────────────
   const checkHealth = useCallback(async () => {
@@ -329,7 +334,7 @@ export default function DashboardPage() {
     setResError('')
 
     if (!resRoomId) { setResError('Selecciona una habitación.'); setResSaving(false); return }
-    if (!resGuestName.trim()) { setResError('Ingresa el nombre del huésped.'); setResSaving(false); return }
+    if (!resDocNum.trim() || !resFirstName.trim()) { setResError('Ingresa documento y nombres del huésped.'); setResSaving(false); return }
 
     if (resStayType === 'HORAS' && (!resCheckInTime || !resCheckOutTime)) {
       setResError('Ingresa la hora de entrada y salida.'); setResSaving(false); return
@@ -338,21 +343,27 @@ export default function DashboardPage() {
       setResError('Ingresa las fechas de check-in y check-out.'); setResSaving(false); return
     }
 
-    // Create guest on the fly
-    const nameParts = resGuestName.trim().split(' ')
-    const { data: guestData, error: guestErr } = await supabase.from('guests').insert({
-      organization_id: activeOrgId,
-      first_name: nameParts[0],
-      last_name: nameParts.slice(1).join(' ') || '-',
-      document_type: 'DNI',
-      document_number: `TEMP-${Date.now()}`,
-      loyalty_points: 0,
-      loyalty_tier: 'BRONZE'
-    }).select('id').single()
+    // Check if guest exists by document number
+    let guestId = null
+    const { data: existingGuest } = await supabase.from('guests').select('id').eq('organization_id', activeOrgId).eq('document_number', resDocNum.trim()).single()
+    
+    if (existingGuest) {
+      guestId = existingGuest.id
+    } else {
+      // Create new guest
+      const { data: guestData, error: guestErr } = await supabase.from('guests').insert({
+        organization_id: activeOrgId,
+        first_name: resFirstName.trim() || 'Huésped',
+        last_name: resLastName.trim() || '-',
+        document_type: resDocType,
+        document_number: resDocNum.trim() || `TEMP-${Date.now()}`,
+      }).select('id').single()
 
-    if (guestErr || !guestData) {
-      setResError(`Error al registrar huésped: ${guestErr?.message}`)
-      setResSaving(false); return
+      if (guestErr || !guestData) {
+        setResError(`Error al registrar huésped: ${guestErr?.message}`)
+        setResSaving(false); return
+      }
+      guestId = guestData.id
     }
 
     const today = new Date().toISOString().split('T')[0]
@@ -383,7 +394,7 @@ export default function DashboardPage() {
 
     const payload: Record<string, any> = {
       branch_id: activeBranchId,
-      guest_id: guestData.id,
+      guest_id: guestId,
       room_id: resRoomId,
       room_type_id: (selectedRoom as any)?.room_type_id || selectedRoomType?.id,
       code: resCode,
@@ -407,7 +418,7 @@ export default function DashboardPage() {
       setResError(`Error: ${error.message}`)
       setResSaving(false)
     } else {
-      setResRoomId(''); setResCheckIn(''); setResCheckOut(''); setResGuestName('')
+      setResRoomId(''); setResCheckIn(''); setResCheckOut(''); setResDocNum(''); setResFirstName(''); setResLastName('')
       setResCheckInTime(''); setResCheckOutTime(''); setResTotalPrice(0); setResStayType('NOCHE')
       setResSaving(false)
       setShowReservationModal(false)
@@ -502,7 +513,7 @@ export default function DashboardPage() {
       setEmpName('')
       setEmpEmail('')
       setEmpPass('')
-      setEmpRole('FRONT_DESK')
+      setEmpRole('RECEPTIONIST')
       loadUsers(activeOrgId)
     }
   }
@@ -764,6 +775,7 @@ export default function DashboardPage() {
                 <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
                   <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
                     <h2 style={{ fontSize: '14px', fontWeight: '800' }}>Habitaciones — Estado en Tiempo Real</h2>
+                    <p style={{ fontSize: '11px', color: 'var(--text-500)', marginTop: '4px' }}>Aquí puedes ver el estado actual de todas las habitaciones de la sucursal seleccionada. Usa el botón 'Reservar' para registrar ingresos (walk-ins) o reservas anticipadas por noche o por horas.</p>
                   </div>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
@@ -959,7 +971,7 @@ export default function DashboardPage() {
                   <div>
                     <label style={{ display: 'block', fontSize: '10px', fontWeight: '800', color: 'var(--text-300)', marginBottom: '6px' }}>ROL</label>
                     <select className="form-input" value={empRole} onChange={e => setEmpRole(e.target.value)}>
-                      <option value="FRONT_DESK">Recepción (Front Desk)</option>
+                      <option value="RECEPTIONIST">Recepción (Front Desk)</option>
                       <option value="HOUSEKEEPING">Limpieza (Housekeeping)</option>
                       <option value="SUPER_ADMIN">Administrador</option>
                     </select>
@@ -1080,10 +1092,30 @@ export default function DashboardPage() {
             )}
 
             <form onSubmit={saveNewReservation}>
-              {/* Guest name */}
-              <div style={{ marginBottom: '13px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Nombre del Huésped</label>
-                <input type="text" className="form-input" placeholder="Ej: Juan García" value={resGuestName} onChange={e => setResGuestName(e.target.value)} required />
+              {/* Guest Details */}
+              <div style={{ marginBottom: '13px', display: 'flex', gap: '10px' }}>
+                <div style={{ width: '90px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', marginBottom: '6px' }}>Tipo</label>
+                  <select className="form-input" value={resDocType} onChange={e => setResDocType(e.target.value)} required>
+                    <option value="DNI">DNI</option>
+                    <option value="PASAPORTE">PAS</option>
+                    <option value="CE">CE</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', marginBottom: '6px' }}>Nº Documento</label>
+                  <input type="text" className="form-input" placeholder="Ej: 7283..." value={resDocNum} onChange={e => setResDocNum(e.target.value)} required />
+                </div>
+              </div>
+              <div style={{ marginBottom: '13px', display: 'flex', gap: '10px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', marginBottom: '6px' }}>Nombres</label>
+                  <input type="text" className="form-input" placeholder="Ej: Juan" value={resFirstName} onChange={e => setResFirstName(e.target.value)} required />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-500)', marginBottom: '6px' }}>Apellidos</label>
+                  <input type="text" className="form-input" placeholder="Ej: Pérez" value={resLastName} onChange={e => setResLastName(e.target.value)} required />
+                </div>
               </div>
 
               {/* Stay type toggle */}

@@ -117,3 +117,53 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* ─── Responsive Layout ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Show hamburger menu button */
+  #mobile-menu-btn { display: flex !important; }
+
+  /* Show mobile bottom nav */
+  #mobile-bottom-nav { display: flex !important; }
+
+  /* Sidebar: fixed overlay on mobile */
+  #main-sidebar {
+    position: fixed !important;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: 280px !important;
+    box-shadow: 20px 0 50px rgba(0,0,0,0.8);
+  }
+
+  /* Add bottom padding to main content so it's not hidden behind bottom nav */
+  #main-content {
+    padding-bottom: 72px !important;
+  }
+
+  /* Stack forms vertically on mobile */
+  form { flex-direction: column !important; }
+
+  /* Bento metric cards: 2 columns on mobile */
+  .bento-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+@media (min-width: 769px) {
+  /* Sidebar always visible on desktop */
+  #main-sidebar {
+    position: relative !important;
+    transform: translateX(0) !important;
+  }
+}
+
+/* Sidebar slide on mobile */
+@media (max-width: 768px) {
+  #main-sidebar {
+    transform: translateX(-100%);
+  }
+  #main-sidebar.sidebar-open {
+    transform: translateX(0) !important;
+    box-shadow: 20px 0 50px rgba(0,0,0,0.8);
+  }
+}

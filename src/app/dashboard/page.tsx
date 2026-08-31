@@ -458,16 +458,13 @@ export default function DashboardPage() {
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        position: 'relative' as const,
         zIndex: 40,
-        ...(typeof window !== 'undefined' && window.innerWidth < 768 ? {
-          position: 'fixed' as const,
-          top: 0, bottom: 0, left: 0,
-          transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 260ms var(--ease-spring)',
-          boxShadow: '20px 0 50px rgba(0,0,0,0.8)',
-        } : {}),
-      }}>
+        transition: 'transform 280ms var(--ease-spring)',
+        transform: sidebarOpen ? 'translateX(0)' : undefined,
+      }}
+      id="main-sidebar"
+      className={sidebarOpen ? 'sidebar-open' : ''}
+>
 
         {/* Brand Header */}
         <div style={{ padding: '18px 18px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -598,7 +595,7 @@ export default function DashboardPage() {
       </aside>
 
       {/* ════════════════════ MAIN CANVAS ════════════════════ */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <main id="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Topbar */}
         <header style={{

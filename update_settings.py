@@ -1,4 +1,6 @@
-'use client'
+import os
+
+code = """'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 
@@ -62,7 +64,7 @@ export default function SettingsView({
     e.preventDefault()
     if (!activeOrgId) { showMsg('b', '⚠️ Selecciona una empresa primero.'); return }
     setLoading(true)
-    const branchCode = bCity.toUpperCase().replace(/\s+/g, '_').slice(0, 20)
+    const branchCode = bCity.toUpperCase().replace(/\\s+/g, '_').slice(0, 20)
     
     if (editingBranch) {
       const { error } = await supabase.from('branches').update({ name: bName, city: bCity, code: branchCode }).eq('id', editingBranch.id)
@@ -255,3 +257,7 @@ export default function SettingsView({
     </div>
   )
 }
+"""
+
+with open('/Users/marlok/Desktop/California/src/app/dashboard/SettingsView.tsx', 'w') as f:
+    f.write(code)

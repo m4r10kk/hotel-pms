@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Organization, Branch, Room, Reservation, Guest, CashShift } from '@/lib/types'
 import SettingsView from './SettingsView'
+import TourGuide from './TourGuide'
 import { createEmployee } from '@/app/actions/users'
 
 // ─── Icon Helper ─────────────────────────────────────────────────────────────
@@ -766,6 +767,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Rooms Table */}
+              <div className="tour-tapechart-rooms">
               {rooms.length === 0 ? (
                 <div style={{ ...card, textAlign: 'center', padding: '40px', color: 'var(--text-500)' }}>
                   <p style={{ fontSize: '14px', marginBottom: '8px' }}>No hay habitaciones en esta sucursal.</p>
@@ -804,7 +806,9 @@ export default function DashboardPage() {
                 </div>
               )}
 
+              </div>
               {/* Reservations */}
+              <div className="tour-tapechart-res">
               {reservations.length > 0 && (
                 <div style={{ ...card, padding: 0, overflow: 'hidden', marginTop: '16px' }}>
                   <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -836,6 +840,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
           )}
 
@@ -1220,6 +1225,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      <TourGuide view={activeView} />
     </div>
   )
 }

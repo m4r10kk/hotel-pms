@@ -1,0 +1,17 @@
+                      <tbody>
+                        {guests.map(g => (
+                          <tr key={g.id}>
+                            <td style={{ padding: '12px 14px', fontWeight: '800' }}>{g.first_name} {g.last_name}</td>
+                            <td style={{ padding: '12px 14px', color: 'var(--text-300)' }}>{g.document_type} {g.document_number}</td>
+                            <td style={{ padding: '12px 14px' }}><span className="pill pill-emerald">{g.loyalty_tier}</span></td>
+                            <td style={{ padding: '12px 14px', color: 'var(--orange)', fontWeight: '700' }}>{g.loyalty_points} pts</td>
+                            <td style={{ padding: '12px 14px', color: 'var(--text-500)', fontSize: '11px' }}>{g.email || g.phone || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ══ USERS ══ */}

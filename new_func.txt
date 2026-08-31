@@ -1,0 +1,89 @@
+  async function saveNewReservation(e: React.FormEvent) {
+    e.preventDefault()
+    setResSaving(true)
+    setResError('')
+
+    if (!resRoomId) { setResError('Selecciona una habitación.'); setResSaving(false); return }
+    if (!resGuestName.trim()) { setResError('Ingresa el nombre del huésped.'); setResSaving(false); return }
+
+    if (resStayType === 'HORAS' && (!resCheckInTime || !resCheckOutTime)) {
+      setResError('Ingresa la hora de entrada y salida.'); setResSaving(false); return
+    }
+    if (resStayType === 'NOCHE' && (!resCheckIn || !resCheckOut)) {
+      setResError('Ingresa las fechas de check-in y check-out.'); setResSaving(false); return
+    }
+
+    // Create guest on the fly
+    const nameParts = resGuestName.trim().split(' ')
+    const { data: guestData, error: guestErr } = await supabase.from('guests').insert({
+      organization_id: activeOrgId,
+      first_name: nameParts[0],
+      last_name: nameParts.slice(1).join(' ') || '-',
+      document_type: 'DNI',
+      document_number: `TEMP-${Date.now()}`,
+      loyalty_points: 0,
+      loyalty_tier: 'BRONZE'
+    }).select('id').single()
+
+    if (guestErr || !guestData) {
+      setResError(`Error al registrar huésped: ${guestErr?.message}`)
+      setResSaving(false); return
+    }
+
+    const today = new Date().toISOString().split('T')[0]
+    const checkInDate = resStayType === 'NOCHE' ? resCheckIn : today
+    const checkOutDate = resStayType === 'NOCHE' ? resCheckOut : today
+
+    let durationHours: number | null = null
+    if (resStayType === 'HORAS' && resCheckInTime && resCheckOutTime) {
+      const [h1, m1] = resCheckInTime.split(':').map(Number)
+      const [h2, m2] = resCheckOutTime.split(':').map(Number)
+      durationHours = Math.max(1, Math.round(((h2 * 60 + m2) - (h1 * 60 + m1)) / 60))
+    }
+
+    const selectedRoom = rooms.find(r => r.id === resRoomId)
+    const selectedRoomType = roomTypes.find(rt => rt.id === selectedRoom?.room_type_id)
+
+    let total = 0
+    if (resStayType === 'HORAS' && selectedRoomType?.hourly_rate && durationHours) {
+      total = selectedRoomType.hourly_rate * durationHours
+    } else if (resStayType === 'NOCHE' && selectedRoomType?.base_price) {
+      const nights = Math.max(1, Math.round((new Date(checkOutDate).getTime() - new Date(checkInDate).getTime()) / 86400000))
+      total = selectedRoomType.base_price * nights
+    }
+
+    const resCode = `RES-${Date.now().toString().slice(-8)}`
+
+    const payload: Record<string, any> = {
+      branch_id: activeBranchId,
+      guest_id: guestData.id,
+      room_id: resRoomId,
+      room_type_id: selectedRoom?.room_type_id,
+      code: resCode,
+      check_in_date: checkInDate,
+      check_out_date: checkOutDate,
+      status: 'CONFIRMED',
+      total_price: total,
+      stay_type: resStayType,
+      adults_count: 1,
+    }
+    if (resStayType === 'HORAS') {
+      payload.duration_hours = durationHours
+      payload.check_in_time = resCheckInTime
+      payload.check_out_time = resCheckOutTime
+    }
+
+    const { error } = await supabase.from('reservations').insert(payload)
+
+    if (error) {
+      setResError(`Error: ${error.message}`)
+      setResSaving(false)
+    } else {
+      setResRoomId(''); setResCheckIn(''); setResCheckOut(''); setResGuestName('')
+      setResCheckInTime(''); setResCheckOutTime(''); setResTotalPrice(0); setResStayType('NOCHE')
+      setResSaving(false)
+      setShowReservationModal(false)
+      loadReservations(activeBranchId)
+    }
+  }
+

@@ -121,6 +121,12 @@ export default function DashboardPage() {
   const [resCheckOutTime, setResCheckOutTime] = useState('')
   const [resTotalPrice, setResTotalPrice] = useState(0)
 
+  // Hourly stays
+  const [resStayType, setResStayType] = useState<'NOCHE' | 'HORAS'>('NOCHE')
+  const [resCheckInTime, setResCheckInTime] = useState('')
+  const [resCheckOutTime, setResCheckOutTime] = useState('')
+  const [resTotalPrice, setResTotalPrice] = useState(0)
+
   // ─── Supabase Health Check ──────────────────────────────────────────────────
   const checkHealth = useCallback(async () => {
     try {
@@ -367,16 +373,14 @@ export default function DashboardPage() {
     }
 
     const selectedRoom = rooms.find(r => r.id === resRoomId)
-    const selectedRoomType = roomTypes.find(rt => rt.id === (selectedRoom as any)?.room_type_id)
+    const selectedRoomType = roomTypes.find(rt => rt.id === selectedRoom?.room_type_id)
 
-    let total = resTotalPrice
-    if (total === 0) {
-      if (resStayType === 'HORAS' && selectedRoomType?.hourly_rate && durationHours) {
-        total = selectedRoomType.hourly_rate * durationHours
-      } else if (resStayType === 'NOCHE' && selectedRoomType?.base_price) {
-        const nights = Math.max(1, Math.round((new Date(checkOutDate).getTime() - new Date(checkInDate).getTime()) / 86400000))
-        total = selectedRoomType.base_price * nights
-      }
+    let total = 0
+    if (resStayType === 'HORAS' && selectedRoomType?.hourly_rate && durationHours) {
+      total = selectedRoomType.hourly_rate * durationHours
+    } else if (resStayType === 'NOCHE' && selectedRoomType?.base_price) {
+      const nights = Math.max(1, Math.round((new Date(checkOutDate).getTime() - new Date(checkInDate).getTime()) / 86400000))
+      total = selectedRoomType.base_price * nights
     }
 
     const resCode = `RES-${Date.now().toString().slice(-8)}`
@@ -385,7 +389,7 @@ export default function DashboardPage() {
       branch_id: activeBranchId,
       guest_id: guestData.id,
       room_id: resRoomId,
-      room_type_id: (selectedRoom as any)?.room_type_id || selectedRoomType?.id,
+      room_type_id: selectedRoom?.room_type_id,
       code: resCode,
       check_in_date: checkInDate,
       check_out_date: checkOutDate,
@@ -394,7 +398,6 @@ export default function DashboardPage() {
       stay_type: resStayType,
       adults_count: 1,
     }
-
     if (resStayType === 'HORAS') {
       payload.duration_hours = durationHours
       payload.check_in_time = resCheckInTime
@@ -413,6 +416,337 @@ export default function DashboardPage() {
       setShowReservationModal(false)
       loadReservations(activeBranchId)
     }
+  }
+
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase'
+import type { Organization, Branch, Room, Reservation, Guest, CashShift } from '@/lib/types'
+import SettingsView from './SettingsView'
+import { createEmployee } from '@/app/actions/users'
+
+// ─── Icon Helper ─────────────────────────────────────────────────────────────
+function Icon({ d, size = 16 }: { d: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  )
+}
+
+// ─── Room Status Helpers ──────────────────────────────────────────────────────
+function roomStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    AVAILABLE: 'Disponible',
+    OCCUPIED: 'Ocupada',
+    CLEANING_IN_PROGRESS: 'Limpiando',
+    DIRTY_PENDING_CLEANING: 'Sucia',
+    INSPECTION_PENDING: 'Inspección',
+    MAINTENANCE_BLOCKED: 'Mantenimiento',
+  }
+  return map[status] ?? status
+}
+
+function roomStatusPill(status: string) {
+  const map: Record<string, string> = {
+    AVAILABLE: 'pill-emerald',
+    OCCUPIED: 'pill-orange',
+    CLEANING_IN_PROGRESS: 'pill-blue',
+    DIRTY_PENDING_CLEANING: 'pill-red',
+    INSPECTION_PENDING: 'pill-amber',
+    MAINTENANCE_BLOCKED: 'pill-red',
+  }
+  return map[status] ?? 'pill-blue'
+}
+
+// ─── Main Dashboard ────────────────────────────────────────────────────────────
+export default function DashboardPage() {
+  const router = useRouter()
+  const supabase = createClient()
+
+
+  // Auth guard + load current user profile
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) {
+        router.push('/login')
+        return
+      }
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('full_name, email, system_role')
+        .eq('id', session.user.id)
+        .single()
+      if (profile) setCurrentProfile(profile)
+    })
+  }, [router, supabase])
+
+  // Supabase connection state
+  const [sbOnline, setSbOnline] = useState(false)
+  const [sbLatency, setSbLatency] = useState<number | null>(null)
+
+  // Data state
+  const [orgs, setOrgs] = useState<Organization[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [roomTypes, setRoomTypes] = useState<any[]>([])
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [reservations, setReservations] = useState<Reservation[]>([])
+  const [guests, setGuests] = useState<Guest[]>([])
+  const [users, setUsers] = useState<any[]>([])
+  const [currentProfile, setCurrentProfile] = useState<{ full_name: string; email: string; system_role: string } | null>(null)
+
+  const [empName, setEmpName] = useState('')
+  const [empEmail, setEmpEmail] = useState('')
+  const [empPass, setEmpPass] = useState('')
+  const [empRole, setEmpRole] = useState('FRONT_DESK')
+  const [empLoading, setEmpLoading] = useState(false)
+
+  const [activeOrgId, setActiveOrgId] = useState<string>('')
+  const [activeBranchId, setActiveBranchId] = useState<string>('')
+  const [activeView, setActiveView] = useState('tapechart')
+
+  // Sidebar & modals
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showNewOrgModal, setShowNewOrgModal] = useState(false)
+  const [showModulesModal, setShowModulesModal] = useState(false)
+  const [showReservationModal, setShowReservationModal] = useState(false)
+  const [showCashModal, setShowCashModal] = useState(false)
+
+  // New org form
+  const [newOrgName, setNewOrgName] = useState('')
+  const [newOrgRuc, setNewOrgRuc] = useState('')
+  const [newOrgCity, setNewOrgCity] = useState('')
+  const [newBranchName, setNewBranchName] = useState('')
+  const [newOrgSaving, setNewOrgSaving] = useState(false)
+  const [newOrgError, setNewOrgError] = useState('')
+
+  // Cash shift form
+  const [cashAmount, setCashAmount] = useState('')
+  const [posAmount, setPosAmount] = useState('')
+  const [yapeAmount, setYapeAmount] = useState('')
+  const [cashSaved, setCashSaved] = useState(false)
+
+  // New reservation form
+  const [resGuestName, setResGuestName] = useState('')
+  const [resRoomId, setResRoomId] = useState('')
+  const [resCheckIn, setResCheckIn] = useState('')
+  const [resCheckOut, setResCheckOut] = useState('')
+  const [resSaving, setResSaving] = useState(false)
+  const [resError, setResError] = useState('')
+  const [resStayType, setResStayType] = useState<'NOCHE' | 'HORAS'>('NOCHE')
+  const [resCheckInTime, setResCheckInTime] = useState('')
+  const [resCheckOutTime, setResCheckOutTime] = useState('')
+  const [resTotalPrice, setResTotalPrice] = useState(0)
+
+  // Hourly stays
+  const [resStayType, setResStayType] = useState<'NOCHE' | 'HORAS'>('NOCHE')
+  const [resCheckInTime, setResCheckInTime] = useState('')
+  const [resCheckOutTime, setResCheckOutTime] = useState('')
+  const [resTotalPrice, setResTotalPrice] = useState(0)
+
+  // ─── Supabase Health Check ──────────────────────────────────────────────────
+  const checkHealth = useCallback(async () => {
+    try {
+      const t0 = performance.now()
+      const { error } = await supabase.from('organizations').select('id').limit(1)
+      const lat = Math.round(performance.now() - t0)
+      if (!error) {
+        setSbOnline(true)
+        setSbLatency(lat)
+      } else {
+        setSbOnline(false)
+      }
+    } catch {
+      setSbOnline(false)
+    }
+  }, [supabase])
+
+  // ─── Load Organizations ─────────────────────────────────────────────────────
+  const loadOrgs = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (!error && data) {
+      setOrgs(data)
+      if (data.length > 0 && !activeOrgId) {
+        setActiveOrgId(data[0].id)
+      }
+    }
+  }, [supabase, activeOrgId])
+
+  // ─── Load Branches by Org ───────────────────────────────────────────────────
+  const loadBranches = useCallback(async (orgId: string) => {
+    const { data, error } = await supabase
+      .from('branches')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: true })
+    if (!error && data) {
+      setBranches(data)
+      if (data.length > 0) setActiveBranchId(data[0].id)
+      else setActiveBranchId('')
+    }
+  }, [supabase])
+
+  // ─── Load Rooms by Branch ───────────────────────────────────────────────────
+  const loadRoomTypes = useCallback(async (branchId: string) => {
+    const { data } = await supabase.from('room_types').select('*').eq('branch_id', branchId)
+    if (data) setRoomTypes(data)
+  }, [supabase])
+
+  const loadRooms = useCallback(async (branchId: string) => {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('branch_id', branchId)
+      .order('room_number', { ascending: true })
+    if (!error && data) setRooms(data)
+  }, [supabase])
+
+  // ─── Load Reservations by Branch ───────────────────────────────────────────
+  const loadReservations = useCallback(async (branchId: string) => {
+    const { data, error } = await supabase
+      .from('reservations')
+      .select('*, rooms(room_number, room_type), guests(first_name, last_name, loyalty_tier)')
+      .eq('branch_id', branchId)
+      .in('status', ['CONFIRMED', 'CHECKED_IN'])
+      .order('check_in_date', { ascending: true })
+    if (!error && data) setReservations(data as Reservation[])
+  }, [supabase])
+
+  // ─── Load Guests ─────────────────────────────────────────────────────────────
+  const loadUsers = useCallback(async (orgId: string) => {
+    const { data } = await supabase.from('user_profiles').select('*').eq('organization_id', orgId)
+    if (data) setUsers(data)
+  }, [supabase])
+
+  const loadGuests = useCallback(async (orgId: string) => {
+    const { data, error } = await supabase
+      .from('guests')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('loyalty_points', { ascending: false })
+      .limit(50)
+    if (!error && data) setGuests(data)
+  }, [supabase])
+
+  // ─── Initial Load ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    checkHealth()
+    loadOrgs()
+  }, [checkHealth, loadOrgs])
+
+  useEffect(() => {
+    if (activeOrgId) {
+      loadBranches(activeOrgId)
+      loadGuests(activeOrgId)
+    }
+  }, [activeOrgId, loadBranches, loadGuests, loadUsers])
+
+  useEffect(() => {
+    if (activeBranchId) {
+      loadRoomTypes(activeBranchId)
+      loadRooms(activeBranchId)
+      loadReservations(activeBranchId)
+    }
+  }, [activeBranchId, loadRoomTypes, loadRooms, loadReservations])
+
+  // ─── Realtime Subscriptions ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!activeBranchId) return
+    const channel = supabase
+      .channel('aura-pms-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'rooms', filter: `branch_id=eq.${activeBranchId}` },
+        () => { loadRoomTypes(activeBranchId); loadRooms(activeBranchId); }
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'reservations', filter: `branch_id=eq.${activeBranchId}` },
+        () => loadReservations(activeBranchId)
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'organizations' },
+        () => loadOrgs()
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, activeBranchId, loadRoomTypes, loadRooms, loadReservations, loadOrgs])
+
+  // ─── Actions ─────────────────────────────────────────────────────────────────
+  async function markRoomClean(roomId: string) {
+    await supabase
+      .from('rooms')
+      .update({ status: 'AVAILABLE', is_clean: true })
+      .eq('id', roomId)
+    // Realtime will re-fetch automatically
+  }
+
+  async function saveNewOrg(e: React.FormEvent) {
+    e.preventDefault()
+    setNewOrgSaving(true)
+    setNewOrgError('')
+
+    // 1. Insert organization
+    const { data: orgData, error: orgError } = await supabase
+      .from('organizations')
+      .insert({ name: newOrgName, tax_id: newOrgRuc })
+      .select()
+      .single()
+
+    if (orgError || !orgData) {
+      setNewOrgError('Error al guardar la empresa. Verifica tu conexión con Supabase.')
+      setNewOrgSaving(false)
+      return
+    }
+
+    // 2. Insert first branch
+    const branchCode = newOrgCity.toUpperCase().replace(/\s+/g, '_').slice(0, 20)
+    await supabase.from('branches').insert({
+      organization_id: orgData.id,
+      name: newBranchName,
+      code: branchCode,
+      city: newOrgCity,
+    })
+    
+    // 3. Link the user to this organization
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      await supabase.from('user_profiles').update({ organization_id: orgData.id }).eq('id', user.id)
+    }
+
+    // Reset form & reload
+    setNewOrgName('')
+    setNewOrgRuc('')
+    setNewOrgCity('')
+    setNewBranchName('')
+    setNewOrgSaving(false)
+    setShowNewOrgModal(false)
+    await loadOrgs()
+    setActiveOrgId(orgData.id)
+  }
+
+  async function saveCashShift(e: React.FormEvent) {
+    e.preventDefault()
+    const cash = parseFloat(cashAmount) || 0
+    const pos = parseFloat(posAmount) || 0
+    const yape = parseFloat(yapeAmount) || 0
+    const total = cash + pos + yape
+
+    await supabase.from('cash_shifts').insert({
+      branch_id: activeBranchId || null,
+      shift_code: `TURNO-${Date.now().toString().slice(-6)}`,
+      status: 'CLOSED',
+      declared_cash: cash,
+      system_cash: total,
+      difference_amount: 0,
+    })
+    setCashSaved(true)
+    setTimeout(() => { setCashSaved(false); setShowCashModal(false) }, 2000)
   }
 
   async function logout() {
@@ -934,7 +1268,14 @@ export default function DashboardPage() {
           )}
 
           {/* ══ USERS ══ */}
-          {activeView === 'settings' && <SettingsView activeOrgId={activeOrgId} activeBranchId={activeBranchId} roomTypes={roomTypes} onRefreshOrg={() => loadBranches(activeOrgId)} onBranchCreated={(id) => { setActiveBranchId(id); loadBranches(activeOrgId); }} onRefresh={() => { loadRoomTypes(activeBranchId); loadRooms(activeBranchId); }} />}
+          {activeView === 'settings' && <SettingsView 
+            activeOrgId={activeOrgId} 
+            activeBranchId={activeBranchId} 
+            roomTypes={roomTypes} 
+            onRefreshOrg={() => loadBranches(activeOrgId)} 
+            onBranchCreated={(id: string) => { setActiveBranchId(id); loadBranches(activeOrgId); }}
+            onRefresh={() => { loadRoomTypes(activeBranchId); loadRooms(activeBranchId); }} 
+          />}
 
           {activeView === 'users' && (
             <div className="animate-fadeUp" style={{ display: 'grid', gap: '24px' }}>
@@ -1079,115 +1420,3 @@ export default function DashboardPage() {
               <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', marginBottom: '14px' }}>{resError}</div>
             )}
 
-            <form onSubmit={saveNewReservation}>
-              {/* Guest name */}
-              <div style={{ marginBottom: '13px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Nombre del Huésped</label>
-                <input type="text" className="form-input" placeholder="Ej: Juan García" value={resGuestName} onChange={e => setResGuestName(e.target.value)} required />
-              </div>
-
-              {/* Stay type toggle */}
-              <div style={{ marginBottom: '13px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '8px' }}>Tipo de Estadía</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {(['NOCHE', 'HORAS'] as const).map(type => (
-                    <button key={type} type="button" onClick={() => setResStayType(type)} style={{
-                      flex: 1, padding: '9px', borderRadius: '9px', fontSize: '12px', fontWeight: '700',
-                      cursor: 'pointer', border: '1px solid',
-                      background: resStayType === type ? 'rgba(255,107,0,0.2)' : 'var(--bg-700)',
-                      borderColor: resStayType === type ? 'rgba(255,107,0,0.5)' : 'var(--border-subtle)',
-                      color: resStayType === type ? 'var(--orange)' : 'var(--text-500)',
-                    }}>
-                      {type === 'NOCHE' ? '🌙 Por Noche' : '⏰ Por Horas'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Room selector */}
-              <div style={{ marginBottom: '13px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Habitación</label>
-                <select className="form-input" value={resRoomId} onChange={e => setResRoomId(e.target.value)} required style={{ cursor: 'pointer' }}>
-                  <option value="">— Selecciona habitación —</option>
-                  {rooms.filter(r => r.status === 'AVAILABLE').map(r => {
-                    const rt = roomTypes.find(t => t.id === (r as any).room_type_id)
-                    const rate = resStayType === 'HORAS' && rt?.hourly_rate ? `S/. ${rt.hourly_rate}/hr` : rt ? `S/. ${rt.base_price}/noche` : ''
-                    return <option key={r.id} value={r.id}>Hab. {r.room_number} — {rt?.name ?? r.room_type} {rate ? `(${rate})` : ''}</option>
-                  })}
-                </select>
-              </div>
-
-              {/* Date/time fields depending on stay type */}
-              {resStayType === 'NOCHE' ? (
-                <>
-                  <div style={{ marginBottom: '13px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Check-in</label>
-                    <input type="date" className="form-input" value={resCheckIn} onChange={e => setResCheckIn(e.target.value)} required={resStayType === 'NOCHE'} />
-                  </div>
-                  <div style={{ marginBottom: '18px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Check-out</label>
-                    <input type="date" className="form-input" value={resCheckOut} onChange={e => setResCheckOut(e.target.value)} required={resStayType === 'NOCHE'} />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', gap: '12px', marginBottom: '13px' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Hora de Entrada</label>
-                      <input type="time" className="form-input" value={resCheckInTime} onChange={e => setResCheckInTime(e.target.value)} required={resStayType === 'HORAS'} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-500)', marginBottom: '6px' }}>Hora de Salida</label>
-                      <input type="time" className="form-input" value={resCheckOutTime} onChange={e => setResCheckOutTime(e.target.value)} required={resStayType === 'HORAS'} />
-                    </div>
-                  </div>
-                  {resCheckInTime && resCheckOutTime && resRoomId && (() => {
-                    const [h1, m1] = resCheckInTime.split(':').map(Number)
-                    const [h2, m2] = resCheckOutTime.split(':').map(Number)
-                    const hrs = Math.max(0, Math.round(((h2 * 60 + m2) - (h1 * 60 + m1)) / 60))
-                    const rt = roomTypes.find(t => t.id === (rooms.find(r => r.id === resRoomId) as any)?.room_type_id)
-                    const total = rt?.hourly_rate ? rt.hourly_rate * hrs : 0
-                    return hrs > 0 ? (
-                      <div style={{ background: 'rgba(255,107,0,0.1)', border: '1px solid rgba(255,107,0,0.3)', borderRadius: '10px', padding: '12px 14px', marginBottom: '14px', fontSize: '13px' }}>
-                        <span style={{ color: 'var(--text-500)' }}>{hrs} hora{hrs !== 1 ? 's' : ''} × S/. {rt?.hourly_rate ?? 0}/hr = </span>
-                        <strong style={{ color: 'var(--orange)', fontSize: '16px' }}>S/. {total.toFixed(2)}</strong>
-                      </div>
-                    ) : null
-                  })()}
-                </>
-              )}
-
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button type="button" onClick={() => setShowReservationModal(false)} style={{ flex: 1, justifyContent: 'center', background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: 'var(--text-300)', padding: '10px', borderRadius: '9px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center' }}>Cancelar</button>
-                <button type="submit" disabled={resSaving} style={{ flex: 1, justifyContent: 'center', background: 'linear-gradient(135deg, var(--orange) 0%, #ea580c 100%)', color: '#fff', padding: '10px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', opacity: resSaving ? 0.7 : 1 }}>
-                  {resSaving ? 'Guardando...' : 'Guardar Reserva'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ════════ MODAL: MÓDULOS ════════ */}
-      {showModulesModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,10,20,0.85)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: '16px' }}>
-          <div className="animate-scaleIn" style={{ background: 'var(--bg-800)', border: '1px solid var(--border-card)', borderRadius: '20px', width: '100%', maxWidth: '420px', padding: '26px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-              <h2 style={{ fontSize: '17px', fontWeight: '800' }}>Módulos del Sistema</h2>
-              <button onClick={() => setShowModulesModal(false)} style={{ background: 'var(--bg-700)', border: '1px solid var(--border-subtle)', color: 'var(--text-300)', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '16px' }}>✕</button>
-            </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-500)', marginBottom: '16px' }}>Todos los módulos activos. La gestión de feature flags por empresa se realizará desde la tabla <code>organization_modules</code> en Supabase.</p>
-            {['Front Desk & Tape Chart (Core)', 'Housekeeping Móvil & Averías', 'Arqueo Ciego de Caja', 'CRM & Puntos de Lealtad', 'Tarifas Dinámicas', 'Facturación SUNAT & WhatsApp'].map(m => (
-              <div key={m} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: '13px', fontWeight: '600' }}>
-                <span>{m}</span>
-                <span className="pill pill-emerald">Activo</span>
-              </div>
-            ))}
-            <button onClick={() => setShowModulesModal(false)} style={{ ...btnPrimary, width: '100%', justifyContent: 'center', marginTop: '18px' }}>Cerrar</button>
-          </div>
-        </div>
-      )}
-
-    </div>
-  )
-}

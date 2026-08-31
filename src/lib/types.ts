@@ -40,6 +40,7 @@ export interface Room {
   id: string
   branch_id: string
   room_number: string
+  room_type_id: string
   room_type: string
   floor: number | null
   capacity: number
@@ -58,6 +59,10 @@ export interface Reservation {
   check_in_date: string
   check_out_date: string
   total_amount: number
+  stay_type?: string
+  duration_hours?: number
+  check_in_time?: string
+  check_out_time?: string
   created_at: string
   guests?: Guest
   rooms?: Room

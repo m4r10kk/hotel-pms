@@ -1,0 +1,16 @@
+                      <tbody>
+                        {rooms.filter(r => r.status.includes('DIRTY') || r.status.includes('CLEANING')).map(rm => (
+                          <tr key={rm.id}>
+                            <td style={{ padding: '12px 14px', fontWeight: '800' }}>Hab. {rm.room_number}</td>
+                            <td style={{ padding: '12px 14px' }}><span className="pill pill-amber">{rm.status}</span></td>
+                            <td style={{ padding: '12px 14px' }}><button style={{ background: 'var(--emerald)', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}>Marcar Limpia</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ══ CASH SHIFT ══ */}
+              {activeView === 'cashshift' && (

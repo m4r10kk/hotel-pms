@@ -1,0 +1,11 @@
+                      <tbody>
+                        {/* Fake cash shift data for now since we do not fetch it */}
+                        <tr><td colSpan={5} style={{ padding: '12px 14px', color: 'var(--text-500)' }}>No hay turnos registrados</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ══ CRM ══ */}
+              {activeView === 'crm' && (

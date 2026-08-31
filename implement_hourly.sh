@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+
+echo "Updating SettingsView.tsx..."
+cat << 'INNER_EOF' > /Users/marlok/Desktop/California/src/app/dashboard/SettingsView.tsx
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
@@ -178,3 +183,5 @@ export default function SettingsView({
     </div>
   )
 }
+INNER_EOF
+

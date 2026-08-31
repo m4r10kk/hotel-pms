@@ -32,8 +32,19 @@ export async function createEmployee(
     return { error: 'No se pudo verificar tu identidad de administrador.' }
   }
 
-  if (adminProfile.system_role !== 'SUPER_ADMIN' || adminProfile.organization_id !== activeOrgId) {
-    return { error: 'No tienes permisos de SUPER_ADMIN para esta empresa.' }
+  if (adminProfile.system_role !== 'SUPER_ADMIN') {
+    return { error: 'Solo un Administrador puede crear empleados.' }
+  }
+
+  // Also verify the organization exists
+  const { data: orgData } = await supabaseAdmin
+    .from('organizations')
+    .select('id')
+    .eq('id', activeOrgId)
+    .single()
+
+  if (!orgData) {
+    return { error: 'La empresa seleccionada no existe.' }
   }
 
   // 2. Create the user in Auth

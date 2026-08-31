@@ -777,7 +777,6 @@ export default function DashboardPage() {
                 <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
                   <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
                     <h2 style={{ fontSize: '14px', fontWeight: '800' }}>Habitaciones — Estado en Tiempo Real</h2>
-                    <p style={{ fontSize: '11px', color: 'var(--text-500)', marginTop: '4px' }}>Aquí puedes ver el estado actual de todas las habitaciones de la sucursal seleccionada. Usa el botón 'Reservar' para registrar ingresos (walk-ins) o reservas anticipadas por noche o por horas.</p>
                   </div>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
